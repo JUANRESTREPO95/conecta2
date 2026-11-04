@@ -4,7 +4,7 @@
 <h1>Pedido {{ pedido.numero }}</h1>
 <p class="sub">
   {{ pedido.creado }} · {{ pedido.vend_nombre }} ({{ pedido.vend_codigo }}) ·
-  estado <span class="pill pill-{{ pedido.estado }}">{{ pedido.estado }}</span>
+  estado <span class="pill pill-{{ pedido.estado }}" id="pill-estado">{{ pedido.estado }}</span>
   {% if pedido.estado == 'error' %}<span class="error">{{ pedido.error_a2 }}</span>{% endif %}
   {% if pedido.montado %}· montado {{ pedido.montado }}{% endif %}
 </p>
@@ -66,6 +66,24 @@
         boton.textContent = 'Compartir por WhatsApp';
       });
   });
+})();
+</script>
+<script>
+(function () {
+  var pill = document.getElementById('pill-estado');
+  if (!pill) return;
+  setInterval(function () {
+    fetch('/pedidos/{{ pedido.id }}/estado')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) return;
+        if (pill.textContent !== d.estado) {
+          pill.className = 'pill pill-' + d.estado;
+          pill.textContent = d.estado;
+        }
+      })
+      .catch(function () {});
+  }, 8000);
 })();
 </script>
 {% endblock %}

@@ -131,7 +131,7 @@
 
 <table>
   <thead><tr><th>Código</th><th>Nombre</th><th>Clave</th>
-      <th>Estado</th><th>Cambiar clave</th>{% if usuario.rol == 'super' %}<th></th>{% endif %}</tr></thead>
+      <th>Estado</th><th>Cambiar clave</th><th></th></tr></thead>
   <tbody>
   {% for v in lista %}
   <tr>
@@ -145,14 +145,12 @@
         <button type="submit">Guardar</button>
       </form>
     </td>
-    {% if usuario.rol == 'super' %}
     <td>
       <form method="post" action="/vendedores/estado" class="inline">
         <input type="hidden" name="vendedor_id" value="{{ v.id }}">
         <button type="submit">{{ "Desactivar" if v.activo else "Activar" }}</button>
       </form>
     </td>
-    {% endif %}
   </tr>
   {% else %}
   <tr><td colspan="7">Aún no hay vendedores.</td></tr>

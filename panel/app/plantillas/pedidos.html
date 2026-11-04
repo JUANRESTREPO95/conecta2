@@ -12,13 +12,14 @@
   <thead><tr><th>Pedido</th><th>Vendedor</th><th>Referencia</th><th>Monto</th><th>Estado</th><th></th><th></th></tr></thead>
   <tbody>
   {% for p in lista %}
-  <tr>
+  <tr data-id="{{ p.id }}">
     <td>{{ p.numero }}</td>
     <td>{% if usuario.rol != 'vendedor' %}{{ p.vend_codigo }} — {{ p.vend_nombre }}{% else %}{{ p.vend_codigo }}{% endif %}</td>
     <td>{{ (p.referencia or "")[:30] }}</td>
     <td>{{ p.total | num }}</td>
-    <td><span class="pill pill-{{ p.estado }}">{{ p.estado }}</span>
-        {% if p.estado == 'error' %}<br><small class="error">{{ (p.error_a2 or "")[:60] }}</small>{% endif %}</td>
+    <td><span class="pill pill-{{ p.estado }}" id="pill-{{ p.id }}">{{ p.estado }}</span>
+        <small class="error" id="err-{{ p.id }}">{% if p.estado == 'error' %}{{ (p.error_a2 or "")[:60] }}{% endif %}</small>
+        {% if p.montado %}<small class="sub" id="mont-{{ p.id }}"> · {{ p.montado }}</small>{% else %}<small class="sub" id="mont-{{ p.id }}"></small>{% endif %}</td>
     <td><a href="/pedidos/{{ p.id }}">Ver</a></td>
     <td>
       <form method="post" action="/pedidos/{{ p.id }}/reenviar" class="inline">
@@ -36,4 +37,33 @@
   página {{ pagina }} de {{ paginas }}
   {% if pagina < paginas %}<a href="/pedidos?estado={{ estado }}&pagina={{ pagina + 1 }}">siguiente ›</a>{% endif %}
 </p>
+<script>
+(function () {
+  // refresca solo los estados (el agente monta en segundo plano)
+  var pagina = "{{ pagina }}";
+  var estado = "{{ estado }}";
+  setInterval(function () {
+    fetch('/pedidos/estados?pagina=' + pagina + '&estado=' + encodeURIComponent(estado))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        (d.items || []).forEach(function (p) {
+          var pill = document.getElementById('pill-' + p.id);
+          if (pill && pill.textContent !== p.estado) {
+            pill.className = 'pill pill-' + p.estado;
+            pill.textContent = p.estado;
+          }
+          var err = document.getElementById('err-' + p.id);
+          if (err && p.estado === 'error' && err.textContent !== (p.error_a2 || '')) {
+            err.textContent = (p.error_a2 || '').slice(0, 60);
+          }
+          var mont = document.getElementById('mont-' + p.id);
+          if (mont) {
+            mont.textContent = p.montado ? ' · ' + p.montado : '';
+          }
+        });
+      })
+      .catch(function () {});
+  }, 8000);
+})();
+</script>
 {% endblock %}

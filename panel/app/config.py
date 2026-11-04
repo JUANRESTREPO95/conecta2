@@ -19,4 +19,4 @@ PUERTO_DEFECTO = 8010
 import os
 A2_DATA = os.environ.get(
     "CONECTA2_A2_DATA",
-    r"C:\Users\juanp\Documents\CLAUDE\CONECTOR\a2HAC_BigStar\Empre001\Data")
+    r"C:\Users\juanp\Documents\CLAUDE\conecta2\DESARROLLO\a2HAC_BigStar\Empre001\Data")

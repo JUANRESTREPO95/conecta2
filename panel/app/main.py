@@ -558,14 +558,17 @@ def super_clave(request: Request, clave: str = Form(...)):
 
 @app.post("/vendedores/estado")
 def vendedores_estado(request: Request, vendedor_id: int = Form(...)):
-    usuario = requiere_rol(request, ("super",))
+    usuario = requiere_rol(request, ("admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    objetivo = db.fila("SELECT * FROM usuarios WHERE id = ? AND rol IN ('vendedor', 'admin')",
-                       (vendedor_id,))
-    pid = objetivo["empresa_id"] if objetivo else None
-    if objetivo is None or \
-            (usuario["rol"] != "super" and pid != usuario["empresa_id"]):
+    objetivo = db.fila("SELECT * FROM usuarios WHERE id = ? "
+                       "AND rol IN ('vendedor', 'admin')", (vendedor_id,))
+    if objetivo is None:
+        return RedirectResponse("/vendedores?error=permiso", status_code=303)
+    # el super con cualquiera; el admin solo con vendedores de su empresa
+    if usuario["rol"] == "admin" and (
+            objetivo["rol"] != "vendedor"
+            or objetivo["empresa_id"] != usuario["empresa_id"]):
         return RedirectResponse("/vendedores?error=permiso", status_code=303)
     db.ejecutar("UPDATE usuarios SET activo = 1 - activo WHERE id = ?", (vendedor_id,))
     return RedirectResponse(f"/vendedores?ok=estado", status_code=303)
@@ -917,6 +920,47 @@ def _acceso_pedido(usuario) -> tuple[str, tuple]:
     if usuario["rol"] == "admin":
         return " AND p.empresa_id = ?", (usuario["empresa_id"],)
     return "", ()
+
+
+@app.get("/pedidos/estados")
+def pedidos_estados(request: Request, pagina: int = 1, estado: str = ""):
+    """Estados de los pedidos de la página visible (refresco sin recargar)."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return {"items": []}
+    por_pagina = 50
+    condicion = "1=1"
+    valores: list = []
+    if usuario["rol"] == "vendedor":
+        condicion += " AND p.vendedor_id = ?"
+        valores.append(usuario["id"])
+    else:
+        empresa = empresa_del(usuario, request.query_params.get("empresa") and
+                              int(request.query_params["empresa"]))
+        if empresa:
+            condicion += " AND p.empresa_id = ?"
+            valores.append(empresa["id"])
+    if estado in ("pendiente", "montado", "error"):
+        condicion += " AND p.estado = ?"
+        valores.append(estado)
+    filas_estado = db.filas(
+        f"SELECT p.id, p.estado, p.montado, p.error_a2 FROM pedidos p "
+        f"WHERE {condicion} ORDER BY p.id DESC LIMIT ? OFFSET ?",
+        tuple(valores) + (por_pagina, max(0, pagina - 1) * por_pagina))
+    return {"items": [dict(f) for f in filas_estado]}
+
+
+@app.get("/pedidos/{pedido_id}/estado")
+def pedido_estado(request: Request, pedido_id: int):
+    """Estado de un pedido (para el detalle, sin recargar)."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return {"ok": False}
+    condicion, extra = _acceso_pedido(usuario)
+    fila_estado = db.fila(
+        f"SELECT p.id, p.estado, p.montado, p.error_a2 FROM pedidos p "
+        f"WHERE p.id = ? {condicion}", (pedido_id,) + extra)
+    return {"ok": True, **dict(fila_estado)} if fila_estado else {"ok": False}
 
 
 @app.get("/pedidos/{pedido_id}/hoja.pdf")

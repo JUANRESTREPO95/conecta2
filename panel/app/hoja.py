@@ -1,8 +1,7 @@
 """Hoja del pedido en PDF y JPG.
 
-5 campos decididos: Pedido, Fecha, Referencia, Vendedor, Monto (sin IVA).
-Se dibuja dos veces: con fpdf2 (PDF) y con Pillow (JPG) respetando la
-misma disposición.
+Campos: Pedido, Fecha, Vendedor, Referencia y Monto (sin IVA).
+Se dibuja como una tabla con bordes, con una fila por campo.
 """
 import io
 import os
@@ -11,6 +10,7 @@ from datetime import date
 from PIL import Image, ImageDraw, ImageFont
 
 from app.db import fila
+
 
 # ------- helpers -------
 
@@ -70,6 +70,11 @@ def datos_de(pedido_id: int):
     return dict(pedido), dict(empresa) if empresa else None
 
 
+def _rgb(hexcolor: str) -> tuple[int, int, int]:
+    hexcolor = hexcolor.lstrip("#")
+    return tuple(int(hexcolor[i:i + 2], 16) for i in (0, 2, 4))
+
+
 # ------- PDF -------
 
 def hoja_pdf(pedido_id: int) -> bytes | None:
@@ -80,81 +85,73 @@ def hoja_pdf(pedido_id: int) -> bytes | None:
         return None
     primario = (empresa or {}).get("color_primario") or "#1e40af"
 
-    pdf = FPDF(orientation="L", format="A4")  # horizontal, igual que la hoja JPG
+    pdf = FPDF(orientation="L", format="A4")
     pdf.add_page()
-    ancho_util = 273  # 297 - 2x12 de margen
 
-    pdf.set_font("helvetica", "B", 22)
+    # ---- encabezado ----
+    pdf.set_font("helvetica", "B", 20)
     pdf.set_text_color(*_rgb(primario))
     logo = _logo_bytes(empresa or {})
     nombre = (empresa or {}).get("nombre") or pedido["empresa_nombre"]
     if logo:
-        tmp = io.BytesIO(logo)
-        pdf.image(tmp, x=12, y=12, h=18)
-        pdf.set_xy(36, 14)
+        pdf.image(io.BytesIO(logo), x=12, y=12, h=16)
+        pdf.set_xy(34, 13)
     else:
-        pdf.set_xy(12, 14)
-    pdf.cell(0, 10, _l1(nombre), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_xy(12, pdf.get_y() + 4)
-    pdf.set_font("helvetica", "", 13)
-    pdf.set_text_color(80, 80, 80)
-    pdf.cell(0, 8, _l1("Hoja de pedido"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_draw_color(*_rgb(primario))
-    pdf.set_line_width(0.6)
-    pdf.line(12, pdf.get_y() + 2, 285, pdf.get_y() + 2)
-    pdf.ln(9)
+        pdf.set_xy(12, 13)
+    pdf.cell(0, 9, _l1(nombre), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_xy(12, pdf.get_y() + 2)
+    pdf.set_font("helvetica", "", 11)
+    pdf.set_text_color(90, 90, 90)
+    pdf.cell(0, 7, _l1("Hoja de pedido"), new_x="LMARGIN", new_y="NEXT")
 
-    MARGEN = 12
-    mitad = 136  # mm: mitad de la hoja horizontal menos margen
+    # ---- tabla con bordes ----
+    X0 = 12.0
+    X_FIN = 285.0
+    ANCHO_ETIQUETA = 42.0
+    X_VALOR = X0 + ANCHO_ETIQUETA
+    BORDE = (60, 60, 60)
 
-    def titulo(t: str, ancho: float):
+    referencia = _l1(pedido["referencia"] or "-")
+    pdf.set_font("helvetica", "", 12)
+    # líneas que ocupará la referencia dentro de su celda
+    ancho_texto = X_FIN - X_VALOR - 4
+    pdf.set_font("helvetica", "", 12)
+    lineas_ref = pdf.multi_cell(ancho_texto, 6, referencia, split_only=True)
+    alto_ref = max(16.0, 4 + 6 * len(lineas_ref))
+
+    filas = [
+        ("PEDIDO", _l1(pedido["numero"]), 11.0, "B", 14),
+        ("FECHA", _l1(_fecha(pedido["creado"])), 11.0, "B", 14),
+        ("VENDEDOR", _l1(f"{pedido['vend_codigo']} - {pedido['vend_nombre']}"),
+         11.0, "B", 14),
+        ("REFERENCIA", referencia, alto_ref, "", 12),
+        ("MONTO (SIN IVA)", _l1(_num(pedido["total"])), 13.0, "B", 15),
+    ]
+
+    y = pdf.get_y() + 6
+    pdf.set_draw_color(*BORDE)
+    pdf.set_line_width(0.35)
+    for etiqueta, valor, alto, estilo, tamano in filas:
+        # marco de la fila y separación etiqueta | valor
+        pdf.rect(X0, y, X_FIN - X0, alto)
+        pdf.line(X_VALOR, y, X_VALOR, y + alto)
+        # etiqueta
         pdf.set_font("helvetica", "", 9)
-        pdf.set_text_color(110, 110, 110)
-        pdf.cell(ancho, 6, _l1(t))
+        pdf.set_text_color(85, 85, 85)
+        pdf.set_xy(X0 + 2.5, y + 2.5)
+        pdf.cell(ANCHO_ETIQUETA - 5, 6, _l1(etiqueta))
+        # valor
+        pdf.set_font("helvetica", estilo, tamano)
+        pdf.set_text_color(25, 25, 25)
+        if etiqueta == "REFERENCIA":
+            pdf.set_xy(X_VALOR + 2.5, y + 2)
+            pdf.multi_cell(ancho_texto, 6, valor)
+        else:
+            pdf.set_xy(X_VALOR + 2.5, y + alto / 2 - 4)
+            pdf.cell(X_FIN - X_VALOR - 4, 8, valor)
+        y += alto
 
-    def valor(v: str, ancho: float, alto: float = 12):
-        pdf.set_font("helvetica", "B", 14)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(ancho, alto, _l1(v))
-
-    # fila 1: PEDIDO (izquierda) | FECHA (derecha), valor debajo de cada título
-    y0 = pdf.get_y()
-    titulo("PEDIDO", mitad)
-    pdf.set_xy(MARGEN + mitad, y0)
-    titulo("FECHA", mitad)
-    pdf.set_xy(MARGEN, y0 + 6)
-    valor(pedido["numero"], mitad)
-    pdf.set_xy(MARGEN + mitad, y0 + 6)
-    valor(_fecha(pedido["creado"]), mitad)
-    pdf.set_y(y0 + 20)
-
-    # VENDEDOR a todo lo ancho, valor debajo
-    pdf.cell(ancho_util, 6, _l1("VENDEDOR"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "B", 14)
-    pdf.set_text_color(30, 30, 30)
-    pdf.multi_cell(ancho_util, 9, _l1(f"{pedido['vend_codigo']} - {pedido['vend_nombre']}"),
-                   new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
-
-    # REFERENCIA: título por fuera y texto quebrado por palabras
-    pdf.cell(ancho_util, 6, _l1("REFERENCIA"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "B", 13)
-    pdf.set_text_color(30, 30, 30)
-    pdf.multi_cell(ancho_util, 7, _l1(pedido["referencia"] or "-"),
-                   new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
-
-    # MONTO
-    pdf.cell(ancho_util, 6, _l1("MONTO (SIN IVA)"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("helvetica", "B", 14)
-    pdf.set_text_color(30, 30, 30)
-    pdf.cell(ancho_util, 12, _l1(_num(pedido["total"])), new_x="LMARGIN", new_y="NEXT")
     return bytes(pdf.output())
-
-
-def _rgb(hexcolor: str) -> tuple[int, int, int]:
-    hexcolor = hexcolor.lstrip("#")
-    return tuple(int(hexcolor[i:i + 2], 16) for i in (0, 2, 4))
 
 
 # ------- JPG -------
@@ -171,19 +168,22 @@ def _fuente(size: int, negrita: bool = False):
 _NORMALES, _NEGRITAS = ["arial.ttf"], ["arialbd.ttf", "Arial Bold.ttf"]
 
 
-def _trozado(texto: str, ancho: int) -> list[str]:
-    """Parte un texto en líneas del ancho indicado (por palabras, sin cortar)."""
+_MEDIDOR = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+
+
+def _trozado(texto: str, ancho_px: float, fuente) -> list[str]:
+    """Parte un texto en líneas que quepan en el ancho real (píxeles)."""
     trozos, actual = [], ""
     for palabra in (texto or "").split():
         prueba = (actual + " " + palabra).strip()
-        if len(prueba) > ancho:
+        if _MEDIDOR.textlength(prueba, font=fuente) > ancho_px and actual:
             trozos.append(actual)
             actual = palabra
         else:
             actual = prueba
     if actual:
         trozos.append(actual)
-    return trozos[:4]
+    return trozos[:12]
 
 
 def hoja_jpg(pedido_id: int) -> bytes | None:
@@ -193,23 +193,41 @@ def hoja_jpg(pedido_id: int) -> bytes | None:
     primario = (empresa or {}).get("color_primario") or "#1e40af"
 
     ref = (pedido["referencia"] or "-").strip() or "-"
-    lineas_ref = _trozado(ref, 60)
     vendedor = f"{pedido['vend_codigo']} — {pedido['vend_nombre']}"
-    if len(vendedor) > 50:
-        vendedor = vendedor[:47] + "..."
+    if len(vendedor) > 46:
+        vendedor = vendedor[:43] + "..."
 
-    alto_total = 620 + max(0, len(lineas_ref) - 1) * 36
-    img = Image.new("RGB", (1000, alto_total), "white")
+    ANCHO = 1000
+    PX = 40
+    X0, X_FIN = PX, ANCHO - PX
+    ANCHO_ETIQ = 205
+    X_VALOR = X0 + ANCHO_ETIQ
+    ANCHO_TEXTO = X_FIN - X_VALOR - 28
+    fuente_ref = _fuente(26)
+    lineas_ref = _trozado(ref, ANCHO_TEXTO, fuente_ref)
+    BORDE = (55, 55, 55)
+
+    alto_ref = max(96, 26 + 34 * len(lineas_ref))
+    filas = [
+        ("PEDIDO", pedido["numero"], 56, True, 30),
+        ("FECHA", _fecha(pedido["creado"]), 56, True, 30),
+        ("VENDEDOR", vendedor, 56, True, 30),
+        ("REFERENCIA", lineas_ref, alto_ref, False, 26),
+        ("MONTO (SIN IVA)", _num(pedido["total"]), 64, True, 32),
+    ]
+    alto_tabla = sum(f[2] for f in filas)
+    alto_total = int(180 + alto_tabla + 40)
+
+    img = Image.new("RGB", (ANCHO, alto_total), "white")
     d = ImageDraw.Draw(img)
-    px = 40
-    x, y = px, px
 
+    # ---- encabezado ----
+    x, y = X0, PX
     logo = _logo_bytes(empresa or {}, alto_px=76)
     nombre = (empresa or {}).get("nombre") or pedido["empresa_nombre"]
     if logo:
         lg = Image.open(io.BytesIO(logo))
         img.paste(lg, (x, y), lg)
-        # centrar el nombre verticalmente respecto del logo
         centro = y + lg.height // 2
         d.text((x + lg.width + 14, centro - 26), nombre,
                font=_fuente(40, True), fill=_rgb(primario))
@@ -218,38 +236,28 @@ def hoja_jpg(pedido_id: int) -> bytes | None:
         d.text((x, y), nombre, font=_fuente(40, True), fill=_rgb(primario))
         y += 62
     d.text((x, y), "Hoja de pedido", font=_fuente(22), fill=(90, 90, 90))
-    y += 40
-    d.line((x, y, 1000 - px, y), fill=_rgb(primario), width=3)
-    y += 26
+    y += 34
+    d.line((X0, y, X_FIN, y), fill=_rgb(primario), width=3)
+    y += 18
 
-    def campo(titulo: str, valor: str, dy_valor: int):
-        nonlocal y
-        d.text((x, y), titulo, font=_fuente(18), fill=(130, 130, 130))
-        d.text((x, y + dy_valor), valor, font=_fuente(30, True), fill=(25, 25, 25))
-        y += dy_valor + 46
+    # ---- tabla con bordes ----
+    for etiqueta, valor, alto, negrita, tamano in filas:
+        d.rectangle((X0, y, X_FIN, y + alto), outline=BORDE, width=2)
+        d.line((X_VALOR, y, X_VALOR, y + alto), fill=BORDE, width=2)
+        d.text((X0 + 14, y + 12), etiqueta, font=_fuente(18), fill=(90, 90, 90))
+        if etiqueta == "REFERENCIA":
+            fy = y + 14
+            for linea in valor:
+                d.text((X_VALOR + 14, fy), linea, font=fuente_ref, fill=(25, 25, 25))
+                fy += 34
+        else:
+            f = _fuente(tamano, negrita)
+            caja = d.textbbox((0, 0), valor, font=f)
+            alto_texto = caja[3] - caja[1]
+            d.text((X_VALOR + 14, y + (alto - alto_texto) / 2 - caja[1]),
+                   valor, font=f, fill=(25, 25, 25))
+        y += alto
 
-    mitad = 460
-    campo("PEDIDO", pedido["numero"], 40)
-    d.text((x + mitad, y - 86), "FECHA", font=_fuente(18), fill=(130, 130, 130))
-    d.text((x + mitad, y - 46), _fecha(pedido["creado"]), font=_fuente(30, True), fill=(25, 25, 25))
-    campo("VENDEDOR", vendedor, 40)
-    d.text((x, y), "REFERENCIA", font=_fuente(18), fill=(130, 130, 130))
-    y += 30
-    if len(lineas_ref) == 1:
-        d.text((x, y), lineas_ref[0], font=_fuente(26, True), fill=(25, 25, 25))
-        y += 44
-    else:
-        for linea in lineas_ref:
-            d.text((x, y), linea, font=_fuente(24), fill=(25, 25, 25))
-            y += 34
-        y += 6
-    d.line((x, y, 1000 - px, y), fill=(230, 230, 230), width=2)
-    y += 20
-    campo("MONTO (SIN IVA)", _num(pedido["total"]), 44)
-    y += 30
-
-    # imagen a la altura exacta del contenido (sin vacía abajo)
-    img = img.crop((0, 0, 1000, min(alto_total, max(y, 620))))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=90)
     return buf.getvalue()
