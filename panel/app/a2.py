@@ -6,7 +6,10 @@ desarrollamos, el panel también lo puede leer porque corre con Python de
 """
 from pathlib import Path
 
-import pyodbc
+try:  # el driver solo existe en la PC de A2; el panel corre sin él
+    import pyodbc
+except ImportError:  # pragma: no cover
+    pyodbc = None
 
 from app import config
 
@@ -14,6 +17,9 @@ CADENA = "DRIVER={DBISAM 4 ODBC Driver};ConnectionType=Local;CatalogName="
 
 
 def conectar(data: str = ""):
+    if pyodbc is None:
+        raise RuntimeError("Este equipo no tiene el driver DBISAM/pyodbc; "
+                           "la lectura de A2 solo se hace en la PC del agente.")
     catalogo = data or config.A2_DATA
     con = pyodbc.connect(CADENA + str(catalogo), autocommit=True)
     con.setdecoding(pyodbc.SQL_CHAR, encoding="cp1252")
