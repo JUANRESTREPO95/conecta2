@@ -30,6 +30,33 @@
   <label>Color principal del panel
     <input name="color_primario" value="{{ e.color_primario }}" type="color">
   </label>
+  <label>Formato del número de pedido
+    <input name="formato_numero" id="formato_numero"
+           value="{{ e.formato_numero or '{vendedor}-{anio}{numero}' }}">
+  </label>
+  <div class="chips-formato" id="chips-formato">
+    <button type="button" data-token="{vendedor}">Vendedor</button>
+    <button type="button" data-token="{anio}">Año</button>
+    <button type="button" data-token="{mes}">Mes</button>
+    <button type="button" data-token="{dia}">Día</button>
+    <button type="button" data-token="{numero}">Número</button>
+    <button type="button" data-token="-">-</button>
+    <button type="button" data-token="_">_</button>
+    <button type="button" data-token=".">.</button>
+  </div>
+  <p class="sub" style="margin-top:4px">Toca los botones para armarlo (o escríbelo a
+    mano). Debe incluir <strong>{numero}</strong>. Vista previa:
+    <strong id="vista-numero">—</strong></p>
+  <label>El consecutivo se reinicia
+    <select name="reinicio_numero">
+      <option value="anual" {% if (e.reinicio_numero or 'anual') == 'anual' %}selected{% endif %}>Cada año</option>
+      <option value="mensual" {% if e.reinicio_numero == 'mensual' %}selected{% endif %}>Cada mes</option>
+      <option value="diario" {% if e.reinicio_numero == 'diario' %}selected{% endif %}>Cada día</option>
+    </select>
+  </label>
+  <label>Dígitos del número (relleno con ceros)
+    <input name="digitos_numero" type="number" min="1" max="6" step="1" value="{{ e.digitos_numero or 4 }}">
+  </label>
   <label>Clientes en los pedidos
     <select name="usar_clientes">
       <option value="1" {% if e.usar_clientes %}selected{% endif %}>Activado: el vendedor puede elegir cliente</option>
@@ -54,6 +81,37 @@ function mostrarMinimo() {
     (m === 'personalizado') ? 'block' : 'none';
 }
 mostrarMinimo();
+</script>
+<script>
+(function () {
+  var entrada = document.getElementById('formato_numero');
+  var vista = document.getElementById('vista-numero');
+  if (!entrada || !vista) return;
+  var hoy = new Date();
+  var dos = function (n) { return String(n).padStart(2, '0'); };
+  function pintaVista() {
+    var v = entrada.value
+      .replace(/\{vendedor\}/g, '17')
+      .replace(/\{anio\}/g, String(hoy.getFullYear()))
+      .replace(/\{mes\}/g, dos(hoy.getMonth() + 1))
+      .replace(/\{dia\}/g, dos(hoy.getDate()))
+      .replace(/\{numero\}/g, '0001');
+    vista.textContent = v || '—';
+  }
+  document.querySelectorAll('#chips-formato button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var token = b.getAttribute('data-token');
+      var ini = entrada.selectionStart, fin = entrada.selectionEnd;
+      entrada.value = entrada.value.slice(0, ini) + token + entrada.value.slice(fin);
+      var pos = ini + token.length;
+      entrada.focus();
+      entrada.setSelectionRange(pos, pos);
+      pintaVista();
+    });
+  });
+  entrada.addEventListener('input', pintaVista);
+  pintaVista();
+})();
 </script>
 {% endif %}
 {% endblock %}

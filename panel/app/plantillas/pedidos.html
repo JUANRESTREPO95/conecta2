@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h1>Pedidos{% if usuario.rol == 'vendedor' %} — mis pedidos{% endif %}</h1>
+{% if request.query_params.get('ok') == 'borrado' %}<p class="ok">Pedido borrado (solo en el panel).</p>{% endif %}
+{% if request.query_params.get('ok') == 'borrados' %}<p class="ok">Se borraron {{ request.query_params.get('n', 0) }} pedidos de ese vendedor (solo en el panel).</p>{% endif %}
+{% if usuario.rol == 'super' and vendedores %}
+<div class="caja borrado-masivo">
+  <form method="post" action="/pedidos/borrar-vendedor"
+        onsubmit="return confirm('¿Borrar TODOS los pedidos de ese vendedor? Esto no toca A2.')">
+    <div class="borrado-fila">
+      <label for="ven-borrar">Borrar todos los pedidos de</label>
+      <select name="vendedor_id" id="ven-borrar" required>
+        {% for v in vendedores %}<option value="{{ v.id }}">{{ v.codigo }} — {{ v.nombre }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="rojo">Borrar todos</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 <p>
   <a href="/pedidos">Todos</a> ·
   <a href="/pedidos?estado=pendiente">Pendientes</a> ·
@@ -22,15 +38,17 @@
         {% if p.montado %}<small class="sub" id="mont-{{ p.id }}"> · {{ p.montado }}</small>{% else %}<small class="sub" id="mont-{{ p.id }}"></small>{% endif %}</td>
     <td><a href="/pedidos/{{ p.id }}">Ver</a></td>
     <td>
-      <form method="post" action="/pedidos/{{ p.id }}/reenviar" class="inline">
-        <button type="submit" title="Cargar este pedido en el carrito para enviarlo de nuevo">Reenviar</button>
-      </form>
-      {% if usuario.rol in ('admin', 'super') %}
-      <form method="post" action="/pedidos/{{ p.id }}/borrar" class="inline"
-            onsubmit="return confirm('¿Borrar el pedido {{ p.numero }}? Esto no toca A2.')">
-        <button type="submit" class="rojo" title="Borrar este pedido del panel">Borrar</button>
-      </form>
-      {% endif %}
+      <span class="acciones-fila">
+        <form method="post" action="/pedidos/{{ p.id }}/reenviar" class="inline">
+          <button type="submit" title="Cargar este pedido en el carrito para enviarlo de nuevo">Reenviar</button>
+        </form>
+        {% if usuario.rol in ('admin', 'super') %}
+        <form method="post" action="/pedidos/{{ p.id }}/borrar" class="inline"
+              onsubmit="return confirm('¿Borrar el pedido {{ p.numero }}? Esto no toca A2.')">
+          <button type="submit" class="rojo" title="Borrar este pedido del panel">Borrar</button>
+        </form>
+        {% endif %}
+      </span>
     </td>
   </tr>
   {% else %}

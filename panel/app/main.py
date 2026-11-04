@@ -712,7 +712,10 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        quitar_logo: str = Form(""),
                        filtro: str = Form("todo"),
                        minimo: int = Form(0),
-                       usar_clientes: str = Form("")):
+                       usar_clientes: str = Form(""),
+                       formato_numero: str = Form("{vendedor}-{anio}{numero}"),
+                       reinicio_numero: str = Form("anual"),
+                       digitos_numero: int = Form(4)):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
@@ -726,13 +729,24 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     # la barra usa el color principal; ya no se pide un color aparte
     if filtro not in ("todo", "positivo", "personalizado"):
         filtro = "todo"
+    actual = db.fila("SELECT formato_numero, reinicio_numero, digitos_numero "
+                     "FROM empresas WHERE id = ?", (empresa_id,))
+    if not formato_numero_valido(formato_numero.strip()):
+        formato_numero = (actual["formato_numero"] if actual else
+                          "{vendedor}-{anio}{numero}")
+    if reinicio_numero not in ("anual", "mensual", "diario"):
+        reinicio_numero = "anual"
+    digitos_numero = max(1, min(6, digitos_numero or 4))
     db.ejecutar("UPDATE empresas SET nombre = ?, deposito_modo = ?, "
                 "ocultar_agotados = ?, color_primario = ?, color_secundario = ?, "
                 "color_letra = ?, logo = ?, filtro_existencia = ?, "
-                "existencia_minima = ?, usar_clientes = ? WHERE id = ?",
+                "existencia_minima = ?, usar_clientes = ?, formato_numero = ?, "
+                "reinicio_numero = ?, digitos_numero = ? WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_primario, color_letra, logo,
-                 filtro, max(0, minimo), 1 if usar_clientes else 0, empresa_id))
+                 filtro, max(0, minimo), 1 if usar_clientes else 0,
+                 formato_numero.strip(), reinicio_numero, digitos_numero,
+                 empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
     return RedirectResponse(f"/configuracion?ok=1&empresa={empresa_id}", status_code=303)
 
@@ -905,20 +919,57 @@ def pedido_quitar(request: Request, codigo: str = Form(...)):
     return RedirectResponse("/pedido", status_code=303)
 
 
-def numero_siguiente(empresa_id: int, vendedor) -> str:
-    """Número de pedido: código del vendedor + año + consecutivo (26-20260001)."""
+VARIABLES_NUMERO = ("vendedor", "anio", "mes", "dia", "numero")
+
+
+def formato_numero_valido(formato: str) -> bool:
+    """El formato solo admite las variables conocidas y caracteres seguros."""
+    import re
+    if not formato or len(formato) > 30 or "{numero}" not in formato:
+        return False
+    limpio = re.sub(r"\{(vendedor|anio|mes|dia|numero)\}", "", formato)
+    return re.fullmatch(r"[A-Za-z0-9_\-.]*", limpio) is not None
+
+
+def numero_siguiente(empresa_id: int, vendedor, empresa=None) -> str:
+    """Arma el número según el formato de la empresa (configurable por el super).
+
+    Variables: {vendedor} {anio} {mes} {dia} {numero}
+    Reinicio del consecutivo: anual, mensual o diario.
+    """
     import datetime as _dt
-    anio = _dt.date.today().year
+    hoy = _dt.date.today()
+    cfg = empresa or db.fila("SELECT * FROM empresas WHERE id = ?", (empresa_id,))
+    formato = (cfg["formato_numero"] if cfg and cfg["formato_numero"]
+               else "{vendedor}-{anio}{numero}")
+    reinicio = (cfg["reinicio_numero"] if cfg and cfg["reinicio_numero"] else "anual")
+    digitos = max(1, min(6, int((cfg["digitos_numero"] if cfg and cfg["digitos_numero"] else 4))))
+    if reinicio == "mensual":
+        periodo = hoy.year * 100 + hoy.month
+    elif reinicio == "diario":
+        periodo = hoy.year * 10000 + hoy.month * 100 + hoy.day
+    else:
+        periodo = hoy.year
     db.ejecutar("INSERT INTO consecutivos (empresa_id, vendedor_id, anio, ultimo) "
                 "VALUES (?, ?, ?, 0) ON CONFLICT(empresa_id, vendedor_id, anio) "
-                "DO NOTHING", (empresa_id, vendedor["id"], anio))
+                "DO NOTHING", (empresa_id, vendedor["id"], periodo))
     con = db.conectar()
     cur = con.execute("UPDATE consecutivos SET ultimo = ultimo + 1 "
                       "WHERE empresa_id = ? AND vendedor_id = ? AND anio = ? "
-                      "RETURNING ultimo", (empresa_id, vendedor["id"], anio))
+                      "RETURNING ultimo", (empresa_id, vendedor["id"], periodo))
     nuevo = cur.fetchone()[0]
     con.commit()
-    return f"{vendedor['codigo']}-{anio}{nuevo:04d}"
+    reemplazos = {
+        "{vendedor}": str(vendedor["codigo"]),
+        "{anio}": f"{hoy.year:04d}",
+        "{mes}": f"{hoy.month:02d}",
+        "{dia}": f"{hoy.day:02d}",
+        "{numero}": str(nuevo).zfill(digitos),
+    }
+    numero = formato
+    for token, valor in reemplazos.items():
+        numero = numero.replace(token, valor)
+    return numero
 
 
 @app.get("/pedido")
@@ -953,7 +1004,7 @@ def pedido_enviar(request: Request, referencia: str = Form(""),
         if p is not None:
             item["precio"] = p["precio"]
             item["descripcion"] = p["descripcion"]
-    numero = numero_siguiente(empresa["id"], usuario)
+    numero = numero_siguiente(empresa["id"], usuario, empresa)
     total = sum(i["cantidad"] * (i["precio"] or 0) for i in carrito)
     if not empresa["usar_clientes"]:
         cliente_codigo, cliente_nombre, cliente_nit = "", "", ""

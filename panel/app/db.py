@@ -152,12 +152,19 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE pedidos ADD COLUMN cliente_nombre TEXT",
         "ALTER TABLE pedidos ADD COLUMN cliente_nit TEXT",
         "ALTER TABLE empresas ADD COLUMN sync_clientes_pedido INTEGER DEFAULT 0",
+        "ALTER TABLE empresas ADD COLUMN formato_numero TEXT",
+        "ALTER TABLE empresas ADD COLUMN reinicio_numero TEXT",
+        "ALTER TABLE empresas ADD COLUMN digitos_numero INTEGER DEFAULT 4",
     ):
         try:
             con.execute(alter)
         except sqlite3.OperationalError:
             pass
     # migración del viejo "ocultar agotados" (sí/no) al nuevo modo de 3 opciones
+    con.execute("UPDATE empresas SET formato_numero = "
+                "'{vendedor}-{anio}{numero}' WHERE formato_numero IS NULL")
+    con.execute("UPDATE empresas SET reinicio_numero = 'anual' "
+                "WHERE reinicio_numero IS NULL")
     con.execute("UPDATE empresas SET filtro_existencia = "
                 "CASE WHEN ocultar_agotados = 1 THEN 'positivo' ELSE 'todo' END "
                 "WHERE filtro_existencia IS NULL")
