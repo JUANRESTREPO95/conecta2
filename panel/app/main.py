@@ -266,6 +266,79 @@ async def api_precios(request: Request):
     return {"ok": True, "precios": len(lote)}
 
 
+@app.post("/api/clientes")
+async def api_clientes(request: Request):
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return Response('{"error": "token inválido"}', status_code=401,
+                        media_type="application/json")
+    if not usuario["empresa_id"]:
+        return Response('{"error": "agente sin empresa"}', status_code=400,
+                        media_type="application/json")
+    lote = await cuerpo_json(request)
+    con = db.conectar()
+    for c in lote:
+        codigo = str(c.get("codigo") or "").strip()
+        if not codigo:
+            continue
+        con.execute(
+            "INSERT INTO clientes (empresa_id, codigo, nombre, nit, actualizado) "
+            "VALUES (?, ?, ?, ?, datetime('now','localtime')) "
+            "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
+            "nombre=excluded.nombre, nit=excluded.nit, "
+            "actualizado=excluded.actualizado",
+            (usuario["empresa_id"], codigo, c.get("nombre"), c.get("nit")))
+    con.commit()
+    return {"ok": True, "guardados": len(lote)}
+
+
+@app.get("/clientes/buscar")
+def clientes_buscar(request: Request, q: str = "", limite: int = 15):
+    """Busca clientes de la empresa para elegirlos en el pedido."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return {"items": []}
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return {"items": []}
+    patron = f"%{q.strip().upper()}%"
+    filas_cli = db.filas(
+        "SELECT codigo, nombre, nit FROM clientes WHERE empresa_id = ? "
+        "AND (UPPER(nombre) LIKE ? OR UPPER(codigo) LIKE ? OR nit LIKE ?) "
+        "ORDER BY nombre LIMIT ?",
+        (empresa["id"], patron, patron, patron, limite))
+    return {"items": [dict(f) for f in filas_cli]}
+
+
+@app.post("/clientes/refrescar")
+def clientes_refrescar(request: Request):
+    """Pide al agente que vuelva a leer los clientes de A2 ya mismo."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return {"ok": False}
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return {"ok": False}
+    db.ejecutar("UPDATE empresas SET sync_clientes_pedido = 1 WHERE id = ?",
+                (empresa["id"],))
+    return {"ok": True}
+
+
+@app.get("/api/sync/clientes")
+def api_sync_clientes(request: Request):
+    """El agente pregunta si hay que refrescar los clientes (y se limpia)."""
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return {"pedido": False}
+    empresa = db.fila("SELECT sync_clientes_pedido FROM empresas WHERE id = ?",
+                      (usuario["empresa_id"],))
+    pedido = bool(empresa and empresa["sync_clientes_pedido"])
+    if pedido:
+        db.ejecutar("UPDATE empresas SET sync_clientes_pedido = 0 WHERE id = ?",
+                    (usuario["empresa_id"],))
+    return {"pedido": pedido}
+
+
 @app.get("/api/pedidos/pendientes")
 def api_pendientes(request: Request):
     usuario = usuario_agente(request)
@@ -273,8 +346,9 @@ def api_pendientes(request: Request):
         return Response('{"error": "token inválido"}', status_code=401,
                         media_type="application/json")
     lista = db.filas(
-        "SELECT p.id, p.numero, p.referencia, u.codigo AS vendedor, u.nombre "
-        "AS vendedor_nombre FROM pedidos p JOIN usuarios u ON u.id = p.vendedor_id "
+        "SELECT p.id, p.numero, p.referencia, p.cliente_nit, p.cliente_nombre, "
+        "u.codigo AS vendedor, u.nombre AS vendedor_nombre FROM pedidos p "
+        "JOIN usuarios u ON u.id = p.vendedor_id "
         "WHERE p.empresa_id = ? AND p.estado = 'pendiente' ORDER BY p.id",
         (usuario["empresa_id"],))
     de_vuelta = []
@@ -627,7 +701,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        logo_file: UploadFile = File(None),
                        quitar_logo: str = Form(""),
                        filtro: str = Form("todo"),
-                       minimo: int = Form(0)):
+                       minimo: int = Form(0),
+                       usar_clientes: str = Form("")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
@@ -644,10 +719,10 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     db.ejecutar("UPDATE empresas SET nombre = ?, deposito_modo = ?, "
                 "ocultar_agotados = ?, color_primario = ?, color_secundario = ?, "
                 "color_letra = ?, logo = ?, filtro_existencia = ?, "
-                "existencia_minima = ? WHERE id = ?",
+                "existencia_minima = ?, usar_clientes = ? WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_primario, color_letra, logo,
-                 filtro, max(0, minimo), empresa_id))
+                 filtro, max(0, minimo), 1 if usar_clientes else 0, empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
     return RedirectResponse(f"/configuracion?ok=1&empresa={empresa_id}", status_code=303)
 
@@ -843,12 +918,16 @@ def pedido(request: Request):
         return RedirectResponse("/login", status_code=303)
     carrito = carrito_obtener(usuario)
     total = sum(i["cantidad"] * (i["precio"] or 0) for i in carrito)
+    empresa = empresa_del(usuario, None)
     return respuesta(request, "pedido.html",
-                     {"carrito": carrito, "total": total})
+                     {"carrito": carrito, "total": total, "empresa": empresa,
+                      "cliente_defecto": "CONSUMIDOR FINAL"})
 
 
 @app.post("/pedido/enviar")
-def pedido_enviar(request: Request, referencia: str = Form("")):
+def pedido_enviar(request: Request, referencia: str = Form(""),
+                  cliente_codigo: str = Form(""), cliente_nombre: str = Form(""),
+                  cliente_nit: str = Form("")):
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
@@ -866,10 +945,18 @@ def pedido_enviar(request: Request, referencia: str = Form("")):
             item["descripcion"] = p["descripcion"]
     numero = numero_siguiente(empresa["id"], usuario)
     total = sum(i["cantidad"] * (i["precio"] or 0) for i in carrito)
+    if not empresa["usar_clientes"]:
+        cliente_codigo, cliente_nombre, cliente_nit = "", "", ""
+    cliente_nit = cliente_nit.strip() or "2222222222"
+    if not cliente_nombre.strip():
+        cliente_nombre = "CONSUMIDOR FINAL" if cliente_nit == "2222222222" else ""
     cur = db.ejecutar(
-        "INSERT INTO pedidos (empresa_id, vendedor_id, numero, referencia, estado, total) "
-        "VALUES (?, ?, ?, ?, 'pendiente', ?)",
-        (empresa["id"], usuario["id"], numero, referencia.strip(), total))
+        "INSERT INTO pedidos (empresa_id, vendedor_id, numero, referencia, estado, "
+        "total, cliente_codigo, cliente_nombre, cliente_nit) "
+        "VALUES (?, ?, ?, ?, 'pendiente', ?, ?, ?, ?)",
+        (empresa["id"], usuario["id"], numero, referencia.strip(), total,
+         cliente_codigo.strip() or None, cliente_nombre.strip() or None,
+         cliente_nit))
     pedido_id = cur.lastrowid
     for item in carrito:
         db.ejecutar("INSERT INTO pedido_lineas (pedido_id, codigo, descripcion, "

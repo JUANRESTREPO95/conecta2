@@ -104,3 +104,22 @@ def leer_precios_ultimos(limite: int = 100_000, data: str = "") -> dict:
         if precio is not None and precio >= 0 and cod not in precios:
             precios[cod] = float(precio)
     return precios
+
+def leer_clientes(data: str = "") -> list[dict]:
+    """Clientes de A2 (SClientes): código, nombre y NIT."""
+    cur = _cur(data)
+    cur.execute("SELECT FC_CODIGO, FC_DESCRIPCION, FC_NIT FROM SClientes")
+    clientes = []
+    while True:
+        fila = cur.fetchone()
+        if fila is None:
+            break
+        codigo = str(fila[0] or "").strip()
+        if not codigo:
+            continue
+        clientes.append({
+            "codigo": codigo,
+            "nombre": str(fila[1] or "").strip() or codigo,
+            "nit": str(fila[2] or "").strip(),
+        })
+    return clientes

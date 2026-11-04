@@ -30,7 +30,17 @@
 </table>
 <p class="derecha"><strong>Total sin IVA: {{ total | num }}</strong></p>
 <div class="caja">
-  <form method="post" action="/pedido/enviar">
+  <form method="post" action="/pedido/enviar" id="form-enviar">
+    {% if empresa and empresa.usar_clientes %}
+    <label>Cliente (si no eliges, va CONSUMIDOR FINAL)
+      <input type="text" id="cliente-buscar" placeholder="Escribe el nombre o NIT…" autocomplete="off">
+      <input type="hidden" name="cliente_codigo" id="cliente-codigo" value="">
+      <input type="hidden" name="cliente_nombre" id="cliente-nombre" value="">
+      <input type="hidden" name="cliente_nit" id="cliente-nit" value="">
+    </label>
+    <div id="cliente-resultados" class="cliente-resultados"></div>
+    <p class="sub" id="cliente-elegido" style="display:none"></p>
+    {% endif %}
     <label>Referencia (por quien se toca / nota)
       <textarea name="referencia" rows="3" id="ref"></textarea>
     </label>
@@ -40,5 +50,84 @@
 </div>
 {% else %}
 <p>Tu carrito está vacío. <a href="/catalogo">Ir al catálogo</a>.</p>
+{% endif %}
+{% if empresa and empresa.usar_clientes and carrito %}
+<script>
+(function () {
+  var entrada = document.getElementById('cliente-buscar');
+  if (!entrada) return;
+  var caja = document.getElementById('cliente-resultados');
+  var elegido = document.getElementById('cliente-elegido');
+  var hCodigo = document.getElementById('cliente-codigo');
+  var hNombre = document.getElementById('cliente-nombre');
+  var hNit = document.getElementById('cliente-nit');
+  var temporizador = null;
+
+  function esc(v) {
+    return String(v || '').replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function elegir(c) {
+    hCodigo.value = c.codigo || '';
+    hNombre.value = c.nombre || '';
+    hNit.value = c.nit || '';
+    entrada.value = c.nombre || c.codigo;
+    elegido.style.display = '';
+    elegido.textContent = 'Cliente elegido: ' + (c.nombre || c.codigo) +
+      (c.nit ? ' — NIT ' + c.nit : '');
+    caja.innerHTML = '';   // al elegir, se ocultan las demás opciones
+  }
+  function buscar() {
+    var q = entrada.value.trim();
+    if (q.length < 2) { caja.innerHTML = ''; return; }
+    fetch('/clientes/buscar?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var items = d.items || [];
+        caja.innerHTML = '';
+        var exacto = null;
+        items.forEach(function (c) {
+          var esExacto = (String(c.nit || '').trim() === q) ||
+                         (String(c.codigo || '').trim() === q);
+          if (esExacto && !exacto) exacto = c;
+          var fila = document.createElement('button');
+          fila.type = 'button';
+          fila.className = 'cliente-opcion';
+          fila.innerHTML = '<span><strong>' + esc(c.nombre) + '</strong>' +
+            (esExacto ? ' <span class="cliente-check">✓ NIT exacto</span>' : '') +
+            '</span><span class="sub">NIT ' + esc(c.nit || '—') +
+            ' · ' + esc(c.codigo) + '</span>';
+          fila.addEventListener('click', function () { elegir(c); });
+          caja.appendChild(fila);
+        });
+        if (!items.length) {
+          if (/^[0-9]{4,}$/.test(q)) {
+            caja.innerHTML = '<p class="error">NIT ' + esc(q) +
+              ' no está en los clientes de A2. Si no lo eliges, el pedido va como ' +
+              'CONSUMIDOR FINAL; escribe los datos del cliente en la Referencia.</p>';
+          } else {
+            caja.innerHTML = '<p class="sub">Sin coincidencias — si no eliges, va CONSUMIDOR FINAL.</p>';
+          }
+          return;
+        }
+        if (exacto) {
+          elegir(exacto);
+        } else if (items.length === 1) {
+          elegir(items[0]);
+        }
+      })
+      .catch(function () {});
+  }
+
+  entrada.addEventListener('input', function () {
+    hCodigo.value = hNombre.value = hNit.value = '';
+    elegido.style.display = 'none';
+    clearTimeout(temporizador);
+    temporizador = setTimeout(buscar, 200);
+  });
+
+})();
+</script>
 {% endif %}
 {% endblock %}

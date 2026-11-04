@@ -26,6 +26,12 @@ def _l1(s) -> str:
         .encode("latin-1", "replace").decode("latin-1")
 
 
+def _cliente_texto(pedido: dict) -> str:
+    nombre = (pedido.get("cliente_nombre") or "CONSUMIDOR FINAL").strip()
+    nit = (pedido.get("cliente_nit") or "").strip()
+    return f"{nombre} - NIT {nit}" if nit else nombre
+
+
 def _fecha(creado: str) -> str:
     if not creado:
         return date.today().isoformat()
@@ -120,12 +126,17 @@ def hoja_pdf(pedido_id: int) -> bytes | None:
     alto_ref = max(16.0, 4 + 6 * len(lineas_ref))
 
     filas = [
-        ("PEDIDO", _l1(pedido["numero"]), 11.0, "B", 14),
-        ("FECHA", _l1(_fecha(pedido["creado"])), 11.0, "B", 14),
+        ("PEDIDO", _l1(pedido["numero"]), 11.0, "", 14),
+        ("FECHA", _l1(_fecha(pedido["creado"])), 11.0, "", 14),
         ("VENDEDOR", _l1(f"{pedido['vend_codigo']} - {pedido['vend_nombre']}"),
-         11.0, "B", 14),
+         11.0, "", 14),
+    ]
+    if (empresa or {}).get("usar_clientes"):
+        cliente_txt = _cliente_texto(pedido)
+        filas.append(("CLIENTE", _l1(cliente_txt), 11.0, "", 13))
+    filas += [
         ("REFERENCIA", referencia, alto_ref, "", 12),
-        ("MONTO (SIN IVA)", _l1(_num(pedido["total"])), 13.0, "B", 15),
+        ("MONTO", _l1(_num(pedido["total"])), 13.0, "", 15),
     ]
 
     y = pdf.get_y() + 6
@@ -135,8 +146,8 @@ def hoja_pdf(pedido_id: int) -> bytes | None:
         # marco de la fila y separación etiqueta | valor
         pdf.rect(X0, y, X_FIN - X0, alto)
         pdf.line(X_VALOR, y, X_VALOR, y + alto)
-        # etiqueta
-        pdf.set_font("helvetica", "", 9)
+        # etiqueta (en negrita)
+        pdf.set_font("helvetica", "B", 9)
         pdf.set_text_color(85, 85, 85)
         pdf.set_xy(X0 + 2.5, y + 2.5)
         pdf.cell(ANCHO_ETIQUETA - 5, 6, _l1(etiqueta))
@@ -209,11 +220,18 @@ def hoja_jpg(pedido_id: int) -> bytes | None:
 
     alto_ref = max(96, 26 + 34 * len(lineas_ref))
     filas = [
-        ("PEDIDO", pedido["numero"], 56, True, 30),
-        ("FECHA", _fecha(pedido["creado"]), 56, True, 30),
-        ("VENDEDOR", vendedor, 56, True, 30),
+        ("PEDIDO", pedido["numero"], 56, False, 30),
+        ("FECHA", _fecha(pedido["creado"]), 56, False, 30),
+        ("VENDEDOR", vendedor, 56, False, 30),
+    ]
+    if (empresa or {}).get("usar_clientes"):
+        fuente_cli = _fuente(26, True)
+        lineas_cli = _trozado(_cliente_texto(pedido), ANCHO_TEXTO, fuente_cli)
+        alto_cli = max(56, 22 + 32 * len(lineas_cli))
+        filas.append(("CLIENTE", lineas_cli, alto_cli, False, 26))
+    filas += [
         ("REFERENCIA", lineas_ref, alto_ref, False, 26),
-        ("MONTO (SIN IVA)", _num(pedido["total"]), 64, True, 32),
+        ("MONTO", _num(pedido["total"]), 64, False, 32),
     ]
     alto_tabla = sum(f[2] for f in filas)
     alto_total = int(180 + alto_tabla + 40)
@@ -244,8 +262,14 @@ def hoja_jpg(pedido_id: int) -> bytes | None:
     for etiqueta, valor, alto, negrita, tamano in filas:
         d.rectangle((X0, y, X_FIN, y + alto), outline=BORDE, width=2)
         d.line((X_VALOR, y, X_VALOR, y + alto), fill=BORDE, width=2)
-        d.text((X0 + 14, y + 12), etiqueta, font=_fuente(18), fill=(90, 90, 90))
-        if etiqueta == "REFERENCIA":
+        d.text((X0 + 14, y + 12), etiqueta, font=_fuente(18, True), fill=(70, 70, 70))
+        if etiqueta == "CLIENTE":
+            fy = y + 14
+            f_cli = _fuente(26)
+            for linea in valor:
+                d.text((X_VALOR + 14, fy), linea, font=f_cli, fill=(25, 25, 25))
+                fy += 32
+        elif etiqueta == "REFERENCIA":
             fy = y + 14
             for linea in valor:
                 d.text((X_VALOR + 14, fy), linea, font=fuente_ref, fill=(25, 25, 25))

@@ -164,3 +164,16 @@ a .btn-neutro, a button.btn-neutro { text-decoration: none; }
   input, textarea, select, button { touch-action: manipulation; }
   html { -webkit-text-size-adjust: 100%; }
 }
+
+
+/* ---- búsqueda de cliente en el pedido ---- */
+.cliente-resultados { display: flex; flex-direction: column; gap: 4px; margin: -4px 0 10px; }
+.cliente-opcion { display: flex; justify-content: space-between; gap: 10px;
+  align-items: baseline; text-align: left; background: #fff; color: var(--texto, #0f172a);
+  border: 1px solid #d7cfc9; border-radius: 8px; padding: 8px 10px;
+  cursor: pointer; font: inherit; }
+.cliente-opcion:hover { background: color-mix(in srgb, var(--primario) 8%, #fff); }
+.cliente-opcion span { font-size: .85rem; }
+
+textarea { width: 100%; height: 96px; min-height: 96px; max-height: 96px;
+  resize: none; overflow-y: auto; }

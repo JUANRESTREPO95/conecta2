@@ -103,6 +103,17 @@ CREATE TABLE IF NOT EXISTS pedido_lineas (
     UNIQUE (pedido_id, codigo)
 );
 
+-- Clientes de A2 (se eligen en el pedido cuando está activado)
+CREATE TABLE IF NOT EXISTS clientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+    codigo TEXT NOT NULL,
+    nombre TEXT,
+    nit TEXT,
+    actualizado TEXT DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (empresa_id, codigo)
+);
+
 -- Consecutivo por vendedor y año (número de pedido '26-20260001')
 CREATE TABLE IF NOT EXISTS consecutivos (
     empresa_id INTEGER NOT NULL,
@@ -136,6 +147,11 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE empresas ADD COLUMN filtro_existencia TEXT DEFAULT NULL",
         "ALTER TABLE empresas ADD COLUMN existencia_minima INTEGER DEFAULT 0",
         "ALTER TABLE usuarios ADD COLUMN clave_visible TEXT DEFAULT NULL",
+        "ALTER TABLE empresas ADD COLUMN usar_clientes INTEGER DEFAULT 0",
+        "ALTER TABLE pedidos ADD COLUMN cliente_codigo TEXT",
+        "ALTER TABLE pedidos ADD COLUMN cliente_nombre TEXT",
+        "ALTER TABLE pedidos ADD COLUMN cliente_nit TEXT",
+        "ALTER TABLE empresas ADD COLUMN sync_clientes_pedido INTEGER DEFAULT 0",
     ):
         try:
             con.execute(alter)

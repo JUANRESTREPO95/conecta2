@@ -30,6 +30,12 @@
   <label>Color principal del panel
     <input name="color_primario" value="{{ e.color_primario }}" type="color">
   </label>
+  <label>Clientes en los pedidos
+    <select name="usar_clientes">
+      <option value="1" {% if e.usar_clientes %}selected{% endif %}>Activado: el vendedor puede elegir cliente</option>
+      <option value="" {% if not e.usar_clientes %}selected{% endif %}>Desactivado: todo va a CONSUMIDOR FINAL (2222222222)</option>
+    </select>
+  </label>
   <label>Color de la letra de la barra
     <input name="color_letra" value="{{ e.color_letra or '#ffffff' }}" type="color">
   </label>
