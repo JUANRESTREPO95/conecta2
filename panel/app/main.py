@@ -302,6 +302,34 @@ async def api_clientes(request: Request):
     return {"ok": True, "guardados": len(lote)}
 
 
+@app.post("/api/vendedores")
+async def api_vendedores(request: Request):
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return Response('{"error": "token inválido"}', status_code=401,
+                        media_type="application/json")
+    if not usuario["empresa_id"]:
+        return Response('{"error": "agente sin empresa"}', status_code=400,
+                        media_type="application/json")
+    lote = await cuerpo_json(request)
+    con = db.conectar()
+    for v in lote:
+        codigo = str(v.get("codigo") or "").strip()
+        if not codigo:
+            continue
+        con.execute(
+            "INSERT INTO vendedores_a2 (empresa_id, codigo, nombre, activo, "
+            "clave_a2, actualizado) VALUES (?, ?, ?, ?, ?, "
+            "datetime('now','localtime')) "
+            "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
+            "nombre=excluded.nombre, activo=excluded.activo, "
+            "clave_a2=excluded.clave_a2, actualizado=excluded.actualizado",
+            (usuario["empresa_id"], codigo, v.get("nombre"),
+             1 if v.get("activo") else 0, v.get("clave_a2")))
+    con.commit()
+    return {"ok": True, "guardados": len(lote)}
+
+
 @app.get("/clientes/buscar")
 def clientes_buscar(request: Request, q: str = "", limite: int = 15):
     """Busca clientes de la empresa para elegirlos en el pedido."""
@@ -546,11 +574,13 @@ def vendedores_importar(request: Request):
     empresa = empresa_del(usuario, None)
     if empresa is None:
         return RedirectResponse("/vendedores?error=permiso", status_code=303)
-    try:
-        desde_a2 = a2.leer_vendedores()
-    except Exception as e:
-        print("ERROR leyendo vendedores de A2:", repr(e), flush=True)
-        return RedirectResponse("/vendedores?error=a2", status_code=303)
+    filas_a2 = db.filas("SELECT codigo, nombre, activo, clave_a2 "
+                        "FROM vendedores_a2 WHERE empresa_id = ?", (empresa["id"],))
+    if not filas_a2:
+        return RedirectResponse("/vendedores?error=sin_datos", status_code=303)
+    desde_a2 = [{"codigo": f["codigo"], "nombre": f["nombre"],
+                 "activo": bool(f["activo"]), "clave_a2": f["clave_a2"] or ""}
+                for f in filas_a2]
     nuevos = actualizados = 0
     generadas = []
     for v in desde_a2:

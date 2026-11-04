@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS clientes (
     UNIQUE (empresa_id, codigo)
 );
 
+-- Vendedores de A2 (los sube el agente; el panel los importa de aquí)
+CREATE TABLE IF NOT EXISTS vendedores_a2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+    codigo TEXT NOT NULL,
+    nombre TEXT,
+    activo INTEGER DEFAULT 1,
+    clave_a2 TEXT,
+    actualizado TEXT DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (empresa_id, codigo)
+);
+
 -- Consecutivo por vendedor y año (número de pedido '26-20260001')
 CREATE TABLE IF NOT EXISTS consecutivos (
     empresa_id INTEGER NOT NULL,
