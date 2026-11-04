@@ -1,56 +1,44 @@
-# Conecta2
+# Conecta2 — panel para servidor (Docker / Portainer)
 
-Panel web de pedidos para mayoristas. Este repositorio contiene **solo el
-panel** (el que se levanta con Docker / Portainer).
+Esta carpeta es la que se sube a GitHub y la que se levanta en el servidor.
 
-- **Panel:** web responsive (iPhone, Android, PC) con catálogo, pedidos,
-  historial, hojas PDF/JPG y administración multi-empresa.
-- El **agente** que inserta los pedidos en A2 (programa de Windows) se
-  distribuye por separado, no vive en este repositorio.
-
-## Estructura
+## Contenido
 
 ```
-panel/     Código del panel: FastAPI + Jinja2 + SQLite
-docker/    Dockerfile y docker-compose para el panel
-docs/      Análisis y diseño (modelo de datos de A2, API, despliegue)
+PARA VPS/
+├── panel/     Código del panel (FastAPI + Jinja2 + SQLite)
+├── docker/    Dockerfile + docker-compose.yml + README del despliegue
+└── README.md
 ```
 
-## Levantarlo con Docker
+## Docker (línea de comandos)
+
+Desde esta carpeta:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-Queda en `http://IP-del-servidor:8050`. La base, los logos y la llave de
-cifrado viven en el volumen (`./datos` por defecto).
+Queda en `http://IP-del-servidor:8050`.
 
-## Levantarlo con Portainer
+Variables:
+- `CONECTA2_PUERTO` — puerto publicado (8050 por defecto)
+- `CONECTA2_DATOS` — carpeta del servidor donde viven la base, los logos y la
+  llave de claves (usar una ruta **absoluta**, por ejemplo `/opt/conecta2/datos`)
+
+## Portainer
 
 1. **Stacks → Add stack → Repository**
-2. Repository URL: `https://github.com/JUANRESTREPO95/conecta2`
-3. Branch: `main` · Compose path: `docker/docker-compose.yml`
-4. En *Environment variables*:
-   - `CONECTA2_DATOS` = ruta absoluta del servidor para los datos
-     (ej. `/opt/conecta2/datos`) — **importante** para que la BD no se pierda
-     al recrear el contenedor
-   - `CONECTA2_PUERTO` = puerto publicado (8050 por defecto)
-5. **Deploy the stack**.
+2. URL: `https://github.com/JUANRESTREPO95/conecta2` · branch `main`
+3. Compose path: `docker/docker-compose.yml`
+4. Variables: `CONECTA2_DATOS=/opt/conecta2/datos` y `CONECTA2_PUERTO=8050`
+5. **Deploy the stack**
 
 Primer arranque: abrir la web y crear el super usuario.
-Token del agente por empresa: **Empresas → Token del agente** (Copiar/Renovar)
-o `docker exec conecta2 python crear_agente_token.py --empresa N`.
+Token del agente: **Empresas → Token del agente** (Copiar/Renovar).
 
-## Roles
+## Notas
 
-| Rol | Puede |
-|---|---|
-| Super usuario | Todo: empresas, colores, nombre, logo, usuarios, tokens |
-| Administrativo (por empresa) | Igual que un vendedor + historial completo de la empresa + ver y cambiar claves de vendedores |
-| Vendedor | Catálogo, pedidos e historial solo suyos |
-
-## Notas de seguridad
-
-- `datos/` (base de datos, llave de cifrado) **no va al repositorio**.
-- Las claves se guardan con hash y, para consultarlas desde el panel, cifradas
-  con una llave local del servidor.
+- `datos/` (base, llave de cifrado) nunca se sube al repositorio.
+- El agente que monta pedidos en A2 se instala aparte, en la PC del negocio
+  (carpeta `AGENTE` de la distribución).
