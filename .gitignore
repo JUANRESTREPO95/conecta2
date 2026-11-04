@@ -3,18 +3,8 @@ datos/
 **/datos/
 *.db
 *.key
-config_agente.json
-correr_agente.bat
-log_agente.txt
-.env
 *.env
-
-# binarios grandes del instalador (se reconstruyen con staging/)
-*.exe
-windows/staging/instaladores/
-windows/Instalador Conecta2.exe
-panel/icono_agente.ico
-agente/icono_agente.ico
+.env
 
 # python / cachés
 __pycache__/
@@ -24,6 +14,4 @@ venv/
 
 # herramientas de desarrollo
 .taste-skill/
-panel/capturas.py
-panel/sincronizar.py
 *.log

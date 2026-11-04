@@ -8,18 +8,34 @@ No incluye A2: el A2 se queda en la PC del negocio, donde corre el agente.
 | Archivo | Qué es |
 |---|---|
 | `Dockerfile` | Imagen con Python 3.11 y el panel |
-| `docker-compose.yml` | Servicio `conecta2` en el puerto 8050, datos persistentes |
-| `panel/` | Código del panel |
+| `docker-compose.yml` | Servicio `conecta2`, puerto y datos por variables |
+| `../panel/` | Código del panel (contexto de compilación: raíz del repo) |
 
-## Cómo se levanta
+## Cómo se levanta con Docker
 
-En la carpeta donde está `docker-compose.yml`:
+Desde la raíz del repositorio:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Queda en `http://IP-del-servidor:8050`.
+
+Variables del compose:
+- `CONECTA2_PUERTO` (por defecto 8050): puerto publicado.
+- `CONECTA2_DATOS` (por defecto `./datos`): carpeta del servidor donde viven
+  la base, los logos y la llave de claves.
+
+## Cómo se levanta con Portainer (recomendado)
+
+1. **Stacks → Add stack → Repository**
+2. Repository URL: `https://github.com/JUANRESTREPO95/conecta2`
+3. Branch `main` · Compose path `docker/docker-compose.yml`
+4. Environment variables:
+   - `CONECTA2_DATOS` = `/opt/conecta2/datos` (ruta **absoluta** del servidor;
+     así la BD sobrevive a recrear el contenedor)
+   - `CONECTA2_PUERTO` = `8050` (o el que quieras publicar)
+5. **Deploy the stack**.
 
 - **Primera vez:** abrir esa dirección en el navegador → el panel pide crear el
   **super usuario**.
