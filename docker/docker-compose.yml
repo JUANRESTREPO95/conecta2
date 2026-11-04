@@ -3,7 +3,6 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: conecta2-panel:latest
     container_name: conecta2
     restart: unless-stopped
     ports:
