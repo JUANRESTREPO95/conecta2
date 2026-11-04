@@ -15,3 +15,7 @@ venv/
 # herramientas de desarrollo
 .taste-skill/
 *.log
+
+# instalador de Windows: se guarda localmente, no en el repo del panel
+windows/
+*.exe
