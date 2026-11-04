@@ -82,7 +82,7 @@ def leer_stock(data: str = "") -> dict:
         fila = cur.fetchone()
         if fila is None:
             break
-        stock[(fila[0].strip().upper(), int(fila[1]))] = float(fila[2] or 0)
+        stock[(str(fila[0]), int(fila[1]))] = float(fila[2] or 0)
     return stock
 
 
@@ -99,7 +99,7 @@ def leer_precios_ultimos(limite: int = 100_000, data: str = "") -> dict:
         if fila is None:
             break
         vistos += 1
-        cod = fila[0].strip().upper()
+        cod = str(fila[0] or "")
         precio = fila[1]
         if precio is not None and precio >= 0 and cod not in precios:
             precios[cod] = float(precio)
@@ -123,3 +123,23 @@ def leer_clientes(data: str = "") -> list[dict]:
             "nit": str(fila[2] or "").strip(),
         })
     return clientes
+
+
+def leer_precios_catalogo(data: str = "") -> dict:
+    """Precios de lista por producto, desde SFixed.FX_COSTOS (Precio 1 = índice 27)."""
+    import struct
+    cur = _cur(data)
+    cur.execute("SELECT FX_CODIGO, FX_COSTOS FROM SFixed WHERE FX_TIPO = 'B'")
+    precios = {}
+    while True:
+        fila = cur.fetchone()
+        if fila is None:
+            break
+        codigo = str(fila[0] or "")      # código tal cual (con espacios)
+        blob = fila[1]
+        if not codigo.strip() or not isinstance(blob, (bytes, bytearray)) or len(blob) < 28 * 8:
+            continue
+        valor = struct.unpack_from("<q", blob, 27 * 8)[0] / 10000.0
+        if valor > 0:
+            precios[codigo] = valor
+    return precios

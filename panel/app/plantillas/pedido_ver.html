@@ -21,6 +21,13 @@
 </table>
 <p class="derecha"><strong>Total sin IVA: {{ pedido.total | num }}</strong></p>
 <p class="acciones">
+  {% if usuario.rol in ('admin', 'super') %}
+  <form method="post" action="/pedidos/{{ pedido.id }}/borrar" class="inline"
+        style="margin:0; display:inline"
+        onsubmit="return confirm('¿Borrar el pedido {{ pedido.numero }}? Esto no toca A2.')">
+    <button type="submit" class="rojo">Borrar pedido</button>
+  </form>
+  {% endif %}
   <form method="post" action="/pedidos/{{ pedido.id }}/reenviar" class="inline" style="margin:0">
     <button type="submit" title="Cargar este pedido en el carrito para enviarlo de nuevo">Reenviar</button>
   </form>

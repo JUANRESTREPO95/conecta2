@@ -25,6 +25,12 @@
       <form method="post" action="/pedidos/{{ p.id }}/reenviar" class="inline">
         <button type="submit" title="Cargar este pedido en el carrito para enviarlo de nuevo">Reenviar</button>
       </form>
+      {% if usuario.rol in ('admin', 'super') %}
+      <form method="post" action="/pedidos/{{ p.id }}/borrar" class="inline"
+            onsubmit="return confirm('¿Borrar el pedido {{ p.numero }}? Esto no toca A2.')">
+        <button type="submit" class="rojo" title="Borrar este pedido del panel">Borrar</button>
+      </form>
+      {% endif %}
     </td>
   </tr>
   {% else %}

@@ -210,8 +210,8 @@ async def api_catalogo(request: Request):
     lote = await cuerpo_json(request)
     con = db.conectar()
     for p in lote:
-        codigo = str(p.get("codigo") or "").strip().upper()
-        if not codigo:
+        codigo = str(p.get("codigo") or "")     # tal cual, sin recortar
+        if not codigo.strip():
             continue
         con.execute(_SQL_PRODUCTO, {
             "e": usuario["empresa_id"], "codigo": codigo,
@@ -249,7 +249,7 @@ async def api_stock(request: Request):
 
 
 @app.post("/api/precios")
-async def api_precios(request: Request):
+async def api_precios(request: Request, origen: str = "venta"):
     usuario = usuario_agente(request)
     if usuario is None:
         return Response('{"error": "token inválido"}', status_code=401,
@@ -257,11 +257,21 @@ async def api_precios(request: Request):
     lote = await cuerpo_json(request)
     con = db.conectar()
     for f in lote:
-        con.execute("UPDATE productos SET precio = ?, "
-                    "actualizado = datetime('now','localtime') "
-                    "WHERE empresa_id = ? AND codigo = ?",
-                    (float(f["precio"]), usuario["empresa_id"],
-                     str(f["codigo"]).upper()))
+        codigo = str(f["codigo"])
+        if origen == "catalogo":
+            # el precio de la lista de A2 manda
+            sql = ("UPDATE productos SET precio = ?, "
+                   "actualizado = datetime('now','localtime') "
+                   "WHERE empresa_id = ? AND (codigo = ? OR codigo_a2 = ?)")
+            valores = (float(f["precio"]), usuario["empresa_id"], codigo, codigo)
+        else:
+            # la última venta solo rellena productos sin precio de lista
+            sql = ("UPDATE productos SET precio = ?, "
+                   "actualizado = datetime('now','localtime') "
+                   "WHERE empresa_id = ? AND (codigo = ? OR codigo_a2 = ?) "
+                   "AND (precio IS NULL OR precio <= 0)")
+            valores = (float(f["precio"]), usuario["empresa_id"], codigo, codigo)
+        con.execute(sql, valores)
     con.commit()
     return {"ok": True, "precios": len(lote)}
 
@@ -736,9 +746,9 @@ def condicion_catalogo(empresa, q: str):
     condicion = "p.empresa_id = ? AND p.internet = 1 AND p.activo = 1"
     valores: list = [empresa["id"]]
     if q.strip():
-        condicion += (" AND (UPPER(p.codigo) LIKE ? OR UPPER(p.descripcion) LIKE ? "
-                      "OR UPPER(p.marca) LIKE ?)")
-        valores += [patron_p, patron_d, patron_d]
+        condicion += (" AND (UPPER(TRIM(p.codigo)) LIKE ? "
+                      "OR UPPER(p.descripcion) LIKE ?)")
+        valores += [patron_p, patron_d]
     # existencia según el modo de depósito de la empresa
     dep1 = ("(SELECT s.existencia FROM stock s WHERE s.empresa_id = p.empresa_id "
             "AND s.codigo_producto = p.codigo AND s.deposito = 1)")
@@ -846,7 +856,7 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
     cantidad = max(1, int(cantidad or 1))
     producto = db.fila("SELECT codigo, descripcion, precio FROM productos "
                        "WHERE empresa_id = ? AND codigo = ? AND internet = 1 AND activo = 1",
-                       (empresa["id"], codigo.strip().upper()))
+                       (empresa["id"], codigo))
     if producto is None:
         return RedirectResponse("/catalogo?aviso=producto", status_code=303)
     carrito = carrito_obtener(usuario)
@@ -993,10 +1003,17 @@ def pedidos(request: Request, pagina: int = 1, estado: str = ""):
         f"FROM pedidos p JOIN usuarios u ON u.id = p.vendedor_id "
         f"WHERE {condicion} ORDER BY p.id DESC LIMIT ? OFFSET ?",
         tuple(valores) + (por_pagina, max(0, pagina - 1) * por_pagina))
+    vendedores = []
+    if usuario["rol"] == "super":
+        emp = empresa_del(usuario, None)
+        if emp:
+            vendedores = db.filas(
+                "SELECT id, codigo, nombre FROM usuarios WHERE empresa_id = ? "
+                "AND rol = 'vendedor' ORDER BY codigo", (emp["id"],))
     return respuesta(request, "pedidos.html", {
         "lista": lista, "total_reg": total_reg, "pagina": pagina,
         "paginas": (total_reg + por_pagina - 1) // por_pagina or 1,
-        "estado": estado})
+        "estado": estado, "vendedores": vendedores})
 
 
 def _acceso_pedido(usuario) -> tuple[str, tuple]:
@@ -1035,6 +1052,47 @@ def pedidos_estados(request: Request, pagina: int = 1, estado: str = ""):
         f"WHERE {condicion} ORDER BY p.id DESC LIMIT ? OFFSET ?",
         tuple(valores) + (por_pagina, max(0, pagina - 1) * por_pagina))
     return {"items": [dict(f) for f in filas_estado]}
+
+
+@app.post("/pedidos/{pedido_id}/borrar")
+def pedidos_borrar(request: Request, pedido_id: int):
+    """Borra un pedido del panel (no toca A2). Admin: de a uno, de su empresa."""
+    usuario = requiere_rol(request, ("admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    condicion, extra = _acceso_pedido(usuario)
+    existe = db.fila(f"SELECT p.id FROM pedidos p WHERE p.id = ? {condicion}",
+                     (pedido_id,) + extra)
+    if existe is None:
+        return RedirectResponse("/pedidos", status_code=303)
+    db.ejecutar("DELETE FROM pedido_lineas WHERE pedido_id = ?", (pedido_id,))
+    db.ejecutar("DELETE FROM pedidos WHERE id = ?", (pedido_id,))
+    return RedirectResponse("/pedidos?ok=borrado", status_code=303)
+
+
+@app.post("/pedidos/borrar-vendedor")
+def pedidos_borrar_vendedor(request: Request, vendedor_id: int = Form(...)):
+    """Super usuario: borra TODOS los pedidos de un vendedor (solo en el panel)."""
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return RedirectResponse("/pedidos", status_code=303)
+    objetivo = db.fila("SELECT id FROM usuarios WHERE id = ? AND empresa_id = ?",
+                       (vendedor_id, empresa["id"]))
+    if objetivo is None:
+        return RedirectResponse("/pedidos?error=permiso", status_code=303)
+    con = db.conectar()
+    ids = [r["id"] for r in con.execute(
+        "SELECT id FROM pedidos WHERE empresa_id = ? AND vendedor_id = ?",
+        (empresa["id"], vendedor_id)).fetchall()]
+    for pid in ids:
+        con.execute("DELETE FROM pedido_lineas WHERE pedido_id = ?", (pid,))
+    con.execute("DELETE FROM pedidos WHERE empresa_id = ? AND vendedor_id = ?",
+                (empresa["id"], vendedor_id))
+    con.commit()
+    return RedirectResponse(f"/pedidos?ok=borrados&n={len(ids)}", status_code=303)
 
 
 @app.get("/pedidos/{pedido_id}/estado")
