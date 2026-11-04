@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Hola, {{ usuario.nombre }}</h1>
+<p class="sub">Rol: <strong>{{ usuario.rol }}</strong>. Conectado el {{ hora }}.</p>
+<ul>
+  <li><a href="/catalogo">Catálogo</a></li>
+  <li><a href="/pedido">Pedido</a></li>
+  {% if usuario.rol == 'vendedor' %}
+    <li><a href="/pedidos">Mis pedidos</a></li>
+  {% else %}
+    <li><a href="/pedidos">Historial de pedidos{% if usuario.rol == 'admin' %} (todos los vendedores){% endif %}</a></li>
+  {% endif %}
+  {% if usuario.rol == 'super' %}
+    <li><a href="/vendedores">Vendedores y administrativos</a></li>
+    <li><a href="/configuracion">Configuración</a></li>
+    <li><a href="/empresas">Empresas</a></li>
+  {% endif %}
+</ul>
+{% endblock %}

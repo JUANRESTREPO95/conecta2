@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ nombre_negocio }} — Conecta2</title>
+  <link rel="stylesheet" href="/estaticos/panel.css">
+  <style>
+    :root { --primario: {{ color_primario }}; --letra: {{ color_letra }}; }
+  </style>
+</head>
+<body>
+  <header class="barra">
+    <div class="marca">{% if logo %}<img src="{{ logo }}" alt="">{% endif %}<span>{{ nombre_negocio }}</span></div>
+    {% if usuario %}
+    <nav>
+      <a href="/inicio">Inicio</a>
+      <a href="/catalogo">Catálogo</a>
+      <a href="/pedido">Pedido{% if carrito_n %} ({{ carrito_n }}){% endif %}</a>
+      <a href="/pedidos">Historial</a>
+      {% if usuario.rol in ('admin', 'super') %}
+        <a href="/vendedores">Vendedores</a>
+      {% endif %}
+      {% if usuario.rol == 'super' %}
+        <a href="/configuracion">Configuración</a>
+        <a href="/empresas">Empresas</a>
+      {% endif %}
+      <a href="/logout" class="salir">Salir ({{ usuario.nombre }})</a>
+    </nav>
+    {% endif %}
+  </header>
+  <main>
+    {% block contenido %}{% endblock %}
+  </main>
+  {% if usuario %}
+  <a href="/pedido" id="carrito-flotante" class="carrito"
+     {% if not carrito_n %}style="display:none"{% endif %}>
+    Pedido: <span id="carrito-monto">{{ carrito_monto | num }}</span>
+  </a>
+  {% endif %}
+</body>
+</html>

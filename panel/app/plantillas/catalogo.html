@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Catálogo{% if empresa %} — {{ empresa.nombre }}{% endif %}</h1>
+{% if sin_empresa %}
+<p class="error">Aún no hay empresas. Créalas en <a href="/empresas">Empresas</a> si eres el super usuario.</p>
+{% else %}
+<p class="sub" id="resumen">
+  {{ total }} productos visibles. Depósito: <strong>
+  {% if empresa.deposito_modo == '1' %}1 (F){% elif empresa.deposito_modo == '2' %}2 (W){% else %}suma de ambos{% endif %}
+</strong>{% if empresa.filtro_existencia == 'positivo' %} — solo con existencia
+{% elif empresa.filtro_existencia == 'personalizado' %} — existencia ≥ {{ empresa.existencia_minima }}{% endif %}</p>
+<form method="get" action="/catalogo" class="buscador" id="form-busq">
+  <input name="q" id="q" value="{{ q }}" placeholder="Escribe y filtra al instante — código por el comienzo o descripción" autofocus>
+  <button type="submit">Buscar</button>
+</form>
+<span id="aviso" class="sub"></span>
+<table class="tabla-catalogo">
+  <thead>
+    <tr><th>Código</th><th>Descripción</th><th>Precio</th><th>Existencia</th><th class="col-agregar">Agregar</th></tr>
+  </thead>
+  <tbody id="filas">
+    {% for p in items %}
+    <tr data-codigo="{{ p.codigo }}" data-descripcion="{{ p.descripcion or '' }}"
+        data-precio="{{ p.precio if p.precio is not none else '' }}"
+        data-existencia="{{ p.existencia }}">
+      <td>{{ p.codigo }}</td><td>{{ p.descripcion }}</td>
+        <td>{{ p.precio | num }}</td><td>{{ p.existencia | num }}</td>
+        <td class="col-agregar">
+          <form method="post" action="/pedido/agregar" class="inline" id="f-{{ p.codigo }}">
+            <input type="hidden" name="codigo" value="{{ p.codigo }}">
+            <input type="number" name="cantidad" value="1" min="1" step="1" class="mini">
+            <button type="submit" title="Agregar al pedido">＋</button>
+          </form>
+        </td></tr>
+    {% else %}
+    <tr><td colspan="5">Sin resultados{% if q %} para “{{ q }}”{% endif %}.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+</div>
+<p class="pag" id="pag">
+  {% if pagina > 1 %}<a href="/catalogo?q={{ q }}&pagina={{ pagina - 1 }}">‹ anterior</a>{% endif %}
+  página {{ pagina }} de {{ paginas }}
+  {% if pagina < paginas %}<a href="/catalogo?q={{ q }}&pagina={{ pagina + 1 }}">siguiente ›</a>{% endif %}
+</p>
+<script>
+(function () {
+  var entrada = document.getElementById('q');
+  var aviso = document.getElementById('aviso');
+  var pag = document.getElementById('pag');
+  var resumen = document.getElementById('resumen');
+  var resumenBase = resumen ? resumen.textContent : '';
+  var temporizador = null;
+  var filasIniciales = document.getElementById('filas').innerHTML;
+
+  function forma(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    return String(Math.round(parseFloat(v))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  function esc(v) {
+    return (v === null || v === undefined) ? '' :
+      String(v).replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+      });
+  }
+  function fila(p) {
+    return '<tr data-codigo="' + esc(p.codigo) + '" data-descripcion="' + esc(p.descripcion) +
+           '" data-precio="' + (p.precio === null || p.precio === undefined ? '' : p.precio) +
+           '" data-existencia="' + (p.existencia === null || p.existencia === undefined ? '' : p.existencia) +
+           '"><td>' + p.codigo + '</td><td>' + esc(p.descripcion) + '</td><td>' + forma(p.precio) +
+           '</td><td>' + forma(p.existencia) +
+           '</td><td class="col-agregar"><form method="post" action="/pedido/agregar" class="inline">' +
+           '<input type="hidden" name="codigo" value="' + p.codigo + '">' +
+           '<input type="number" name="cantidad" value="1" min="1" step="1" class="mini">' +
+           '<button type="submit" title="Agregar al pedido">＋</button></form></td></tr>';
+  }
+
+  // ---- agregar al pedido sin salir del catálogo ----
+  function actualizarCarrito(d) {
+    var caja = document.getElementById('carrito-flotante');
+    if (!caja) { window.location = '/pedido'; return; }
+    caja.style.display = '';
+    document.getElementById('carrito-monto').textContent = forma(d.carrito_monto);
+  }
+  function agregar(codigo, cantidad) {
+    var cuerpoForm = new FormData();
+    cuerpoForm.append('codigo', codigo);
+    cuerpoForm.append('cantidad', cantidad);
+    return fetch('/pedido/agregar', {
+      method: 'POST', body: cuerpoForm,
+      headers: { 'X-Requested-With': 'fetch' }
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { window.location = '/catalogo'; return; }
+      actualizarCarrito(d);
+    });
+  }
+
+  entrada.addEventListener('input', function () {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(buscar, 250);
+  });
+
+  function buscar() {
+    var q = entrada.value.trim();
+    if (!q) {
+      document.getElementById('filas').innerHTML = filasIniciales;
+      if (aviso) aviso.textContent = '';
+      if (pag) pag.style.display = '';
+      if (resumen) resumen.textContent = resumenBase;
+      return;
+    }
+    fetch('/catalogo/buscar?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var tbody = document.getElementById('filas');
+        if (pag) pag.style.display = 'none';
+        if (resumen) resumen.textContent = resumenBase;
+        if (!d.items.length) {
+          tbody.innerHTML = '<tr><td colspan="5">Nada que empiece o contenga “' + esc(q) + '”.</td></tr>';
+          if (aviso) aviso.textContent = '';
+          return;
+        }
+        var html = '';
+        for (var i = 0; i < d.items.length; i++) html += fila(d.items[i]);
+        tbody.innerHTML = html;
+        if (aviso) aviso.textContent =
+          (d.total > d.items.length)
+            ? 'Mostrando ' + d.items.length + ' de ' + d.total + ' — sigue escribiendo o presiona Entra para verlos paginados.'
+            : d.total + ' coincidencia(s).';
+      })
+      .catch(function () { });
+  }
+
+  // el formulario de la fila (escritorio) sigue funcionando sin recargar
+  var cuerpo = document.getElementById('filas');
+  cuerpo.addEventListener('submit', function (e) {
+    var f = e.target;
+    while (f && f.tagName !== 'FORM') f = f.parentElement;
+    if (!f || f.getAttribute('action').indexOf('/pedido/agregar') === -1) return;
+    e.preventDefault();
+    var codigo = f.querySelector('input[name="codigo"]').value;
+    var cantidad = f.querySelector('input[name="cantidad"]').value || 1;
+    agregar(codigo, cantidad).catch(function () { f.submit(); });
+  });
+
+})();
+</script>
+{% endif %}
+{% endblock %}

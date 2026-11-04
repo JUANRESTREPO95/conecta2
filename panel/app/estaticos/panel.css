@@ -1,0 +1,166 @@
+/* Conecta2 — Vibrante & Por bloques (ui-ux-pro-max)
+   Bloques llenos del color de la empresa, tipografía Rubik + Nunito Sans,
+   grande y con energía. Nada gris: el color manda. */
+
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&family=Rubik:wght@500;600;700;800&display=swap');
+
+:root {
+  --primario: #1e40af;
+  --secundario: color-mix(in srgb, var(--primario) 70%, #000000); /* barra lateral del carrito */
+  --letra: #ffffff;
+  --fondo: color-mix(in srgb, var(--primario) 6%, #fff7ed);
+  --superficie: #ffffff;
+  --tinte: color-mix(in srgb, var(--primario) 12%, #ffffff);
+  --tinte-fuerte: color-mix(in srgb, var(--primario) 28%, #ffffff);
+  --oscuro: color-mix(in srgb, var(--primario) 65%, #000000);   /* hover del primario */
+  --texto: #0f172a;
+  --texto-suave: #47566b;
+  --borde: color-mix(in srgb, var(--primario) 20%, #e9d9cf);
+  --amarillo: #f59e0b;   --verde: #16a34a;   --rojo: #dc2626;  --gris: #64748b;
+  --radio: 12px;
+  --sombra: 0 4px 14px color-mix(in srgb, var(--primario) 18%, rgba(0,0,0,.06));
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Nunito Sans", "Segoe UI", system-ui, sans-serif;
+       background: var(--fondo); color: var(--texto); font-size: 15px; line-height: 1.5; }
+main { max-width: 1080px; margin: 0 auto; padding: 1.25rem 1.25rem 5rem; }
+h1 { font-family: "Rubik", "Segoe UI", sans-serif; font-size: clamp(24px, 5vw, 32px);
+     font-weight: 600; letter-spacing: -.02em; color: var(--texto); margin: 0 0 .35rem; }
+h1::after { content: ""; display: block; width: 56px; height: 6px; margin-top: 8px;
+            border-radius: 999px; background: var(--primario); }
+h1 + .sub, h1 ~ .sub { margin: .5rem 0 0; }
+.num { font-variant-numeric: tabular-nums; }
+td.num, th.num { text-align: right; }
+
+/* ---- barra: bloque lleno del color de la empresa ---- */
+.barra { background: var(--primario); color: #fff; padding: .8rem 1.25rem;
+         display: flex; align-items: center; justify-content: space-between;
+         flex-wrap: wrap; gap: .6rem; box-shadow: var(--sombra); position: relative; }
+.barra::after { content: ""; position: absolute; left: 0; right: 0; bottom: -8px;
+                height: 8px; background:
+                linear-gradient(90deg, var(--primario) 0 60%, var(--secundario) 60% 100%); }
+.marca { font-family: "Rubik", sans-serif; font-weight: 600; font-size: 1.25rem;
+         display: flex; align-items: center; gap: .5rem; }
+.marca img { height: 34px; border-radius: 8px; background: #fff; padding: 2px; }
+.barra nav { display: flex; gap: .35rem; flex-wrap: wrap; }
+.barra nav a { color: #fff; opacity: .92; text-decoration: none; font-weight: 600;
+               padding: .45rem .8rem; border-radius: 8px; transition: background .2s, opacity .2s; }
+.barra nav a:hover { opacity: 1; background: rgba(255,255,255,.18); }
+.barra nav a.salir { background: rgba(0,0,0,.22); }
+.barra nav a.salir:hover { background: rgba(0,0,0,.35); }
+
+/* ---- formularios ---- */
+form label { display: block; margin: .6rem 0; font-weight: 700; font-size: .95rem; }
+form input, form textarea, form select { display: block; width: 100%;
+  padding: .6rem .8rem; margin-top: .25rem; border: 2px solid #d7cfc9;
+  border-radius: 10px; font-size: 1rem; background: #fff; color: var(--texto);
+  transition: border-color .2s, box-shadow .2s; }
+form input:focus, form textarea:focus, form select:focus {
+  outline: none; border-color: var(--primario);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primario) 25%, #fff); }
+button { font-family: "Rubik", sans-serif; font-weight: 600; font-size: .95rem;
+  background: var(--primario); color: #fff; border: 2px solid var(--primario);
+  padding: .55rem 1.2rem; border-radius: 10px; cursor: pointer;
+  transition: transform .15s, background .2s, box-shadow .2s; }
+button:hover { background: var(--oscuro); border-color: var(--oscuro);
+               box-shadow: 0 3px 10px color-mix(in srgb, var(--primario) 35%, #00000022); }
+button:active { transform: translateY(1px); }
+
+/* ---- mensajes y píldoras ---- */
+.error { color: #b91c1c; font-weight: 700; margin-top: -.5rem; }
+.ok { color: #15803d; font-weight: 700; }
+.mensaje-estado { color: #b91c1c; font-weight: 700; }
+.sub { color: var(--texto-suave); font-size: .92rem; margin: .2rem 0 .6rem; }
+.pill { padding: .12rem .65rem; border-radius: 999px; font-size: .85rem;
+        font-weight: 700; color: #fff; display: inline-block; white-space: nowrap; }
+.pill-pendiente { background: var(--amarillo); }
+.pill-montado { background: var(--verde); }
+.pill-error { background: var(--rojo); }
+.pill-inactivo { background: var(--gris); }
+
+/* ---- tablas por bloques ---- */
+table { width: 100%; border-collapse: separate; border-spacing: 0;
+        background: #fff; border: 2px solid var(--borde);
+        border-radius: 14px; overflow: hidden; }
+thead th { background: var(--primario); color: #fff; font-family: "Rubik", sans-serif;
+           font-size: .78rem; letter-spacing: .04em; text-transform: uppercase;
+           padding: .65rem .7rem; text-align: left; }
+tbody td { padding: .6rem .7rem; border-bottom: 1px solid color-mix(in srgb, var(--borde) 55%, #fff); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--tinte) 55%, #fff); }
+tbody tr { transition: background .15s; }
+tbody tr:hover td { background: var(--tinte); }
+
+/* ---- buscar: barra gruesa ---- */
+.buscador { display: flex; gap: .6rem; margin: .9rem 0; }
+.buscador input { flex: 1; padding: .65rem .9rem; border: 2px solid #d7cfc9;
+  border-radius: 10px; font-size: 1rem; }
+.buscador input:focus { border-color: var(--primario); }
+#aviso { display: block; margin-bottom: .4rem; }
+
+/* ---- paneles y cajas ---- */
+.caja { background: #fff; padding: 1.25rem 1.5rem; border-radius: 14px;
+        border: 2px solid var(--borde); max-width: 560px; }
+.caja select { border: 2px solid #d7cfc9; }
+.pag { display: flex; gap: .8rem; align-items: center; justify-content: flex-end;
+       color: var(--texto-suave); font-size: .9rem; margin-top: .8rem; }
+.pag a { color: var(--primario); text-decoration: none; font-weight: 700; }
+.pag a:hover { text-decoration: underline; }
+
+/* ---- pedidos ---- */
+form.inline { display: flex; gap: .3rem; align-items: center; }
+input.mini { width: 84px; padding: .35rem .5rem; border: 2px solid #d7cfc9;
+  border-radius: 8px; font: inherit; font-variant-numeric: tabular-nums; }
+input.mini:focus { border-color: var(--primario); }
+button.rojo { background: var(--rojo); border-color: var(--rojo); margin-top: 0; }
+button.rojo:hover { background: #b91c1c; border-color: #b91c1c; }
+button.btn-neutro { margin-top: 0; }
+.derecha { text-align: right; font-size: 1.15rem; }
+textarea { font: inherit; }
+
+/* ---- carrito flotante: el botón grande ---- */
+.carrito { position: fixed; right: 1.1rem; bottom: 1.1rem;
+  background: var(--secundario); color: #fff !important; padding: .85rem 1.3rem;
+  border-radius: 999px; font-family: "Rubik", sans-serif; font-weight: 600;
+  font-size: 1rem; box-shadow: 0 6px 18px rgba(15, 23, 42, .35);
+  text-decoration: none; z-index: 50; transition: transform .15s; }
+.carrito:hover { transform: scale(1.04); background: var(--secundario); }
+.btn-neutro.acciones a { text-decoration: none; }
+.acciones { display: flex; gap: .5rem; flex-wrap: wrap; }
+a .btn-neutro, a button.btn-neutro { text-decoration: none; }
+
+/* ---- login ---- */
+#login-caja { max-width: 420px; margin: 3rem auto; background: #fff;
+  padding: 2rem 2.25rem; border-radius: 16px; border: 2px solid var(--borde);
+  box-shadow: var(--sombra); }
+#login-caja h1 { margin-bottom: .2rem; }
+
+/* ---- celular: la tabla se desplaza dentro de su marco ---- */
+@media (max-width: 640px) {
+  main { padding: 1rem 1rem 4.5rem; }
+  h1 { font-size: 24px; }
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+  thead th, tbody td { min-width: 86px; }
+  thead th:first-child, tbody td:first-child { position: sticky; left: 0;
+    background: #fff; }
+  thead th:first-child { background: var(--primario); }
+  tbody tr:nth-child(even) td:first-child { background: color-mix(in srgb, var(--tinte) 55%, #fff); }
+  main > table, main > .buscador { padding: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+
+
+/* ---- celular: sin zoom automático al tocar los campos ---- */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px !important; }
+  table.lista input.mini, table input.mini, input.mini {
+    font-size: 16px !important; width: 76px;
+  }
+  input, textarea, select, button { touch-action: manipulation; }
+  html { -webkit-text-size-adjust: 100%; }
+}

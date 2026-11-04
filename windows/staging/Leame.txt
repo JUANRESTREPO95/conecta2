@@ -1,0 +1,27 @@
+AGENTE CONECTA2 - INSTALADOR PARA WINDOWS
+=========================================
+
+Al ejecutar este archivo se instala todo en la PC del negocio:
+
+  1. Python 3.11 (32 bits) en C:\Conecta2\python32  (si no existe)
+  2. El driver DBISAM ODBC 4.29 (32 bits)          (si no existe)
+  3. La libreria pyodbc
+  4. El agente en C:\Conecta2\agente
+  5. Un acceso directo "Conecta2 Agente" en el Escritorio
+
+Durante la instalacion el asistente pide:
+  - URL del panel (ejemplo: https://pedidos.tudominio.com)
+  - TOKEN del agente  (se copia del panel: Empresas -> Token del agente)
+  - Carpeta Data de A2 (la que contiene Empre001\Data, con el explorador)
+  - Deposito para los pedidos (1 o 2)
+
+Windows puede mostrar un aviso de "editor desconocido" porque el
+instalador no esta firmado: elegir "Mas informacion" -> "Ejecutar de
+todas formas".
+
+El agente queda en la bandeja junto al reloj. Al abrirlo se puede
+cambiar la configuracion (URL, token, carpeta de A2) sin editar nada
+a mano.
+
+Requisitos: Windows 10/11, permiso de administrador e internet para
+el paso de pyodbc.

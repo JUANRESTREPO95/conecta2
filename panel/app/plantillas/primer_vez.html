@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div id="login-caja">
+  <h1>Conecta2 — primer arranque</h1>
+  <p>Crear el <strong>super usuario</strong> que administrará todo el sistema.</p>
+  {% if request.query_params.get('error') %}
+    <p class="error">Revise los datos: claves iguales y de mínimo 6 caracteres.</p>
+  {% endif %}
+  <form method="post" action="/primer-vez">
+    <label>Código
+      <input name="codigo" required autofocus>
+    </label>
+    <label>Nombre (suyo, para mostrar)
+      <input name="nombre" required>
+    </label>
+    <label>Clave
+      <input name="clave" type="password" required>
+    </label>
+    <label>Repita la clave
+      <input name="clave2" type="password" required>
+    </label>
+    <button type="submit">Crear super usuario</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Pedidos{% if usuario.rol == 'vendedor' %} — mis pedidos{% endif %}</h1>
+<p>
+  <a href="/pedidos">Todos</a> ·
+  <a href="/pedidos?estado=pendiente">Pendientes</a> ·
+  <a href="/pedidos?estado=montado">Montados</a> ·
+  <a href="/pedidos?estado=error">Con error</a>
+  <span class="sub">({{ total_reg }} en total)</span>
+</p>
+<table>
+  <thead><tr><th>Pedido</th><th>Vendedor</th><th>Referencia</th><th>Monto</th><th>Estado</th><th></th><th></th></tr></thead>
+  <tbody>
+  {% for p in lista %}
+  <tr>
+    <td>{{ p.numero }}</td>
+    <td>{% if usuario.rol != 'vendedor' %}{{ p.vend_codigo }} — {{ p.vend_nombre }}{% else %}{{ p.vend_codigo }}{% endif %}</td>
+    <td>{{ (p.referencia or "")[:30] }}</td>
+    <td>{{ p.total | num }}</td>
+    <td><span class="pill pill-{{ p.estado }}">{{ p.estado }}</span>
+        {% if p.estado == 'error' %}<br><small class="error">{{ (p.error_a2 or "")[:60] }}</small>{% endif %}</td>
+    <td><a href="/pedidos/{{ p.id }}">Ver</a></td>
+    <td>
+      <form method="post" action="/pedidos/{{ p.id }}/reenviar" class="inline">
+        <button type="submit" title="Cargar este pedido en el carrito para enviarlo de nuevo">Reenviar</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7">Aún no hay pedidos.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="pag">
+  {% if pagina > 1 %}<a href="/pedidos?estado={{ estado }}&pagina={{ pagina - 1 }}">‹ anterior</a>{% endif %}
+  página {{ pagina }} de {{ paginas }}
+  {% if pagina < paginas %}<a href="/pedidos?estado={{ estado }}&pagina={{ pagina + 1 }}">siguiente ›</a>{% endif %}
+</p>
+{% endblock %}

@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>{% if usuario.rol == 'super' %}Usuarios{% else %}Vendedores{% endif %}{% if e %} — {{ e.nombre }}{% endif %}</h1>
+{% if sin_empresa %}
+<p class="error">No hay empresa activa para administrar usuarios.</p>
+{% else %}
+{% if request.query_params.get('ok') == 'creado' %}<p class="ok">Usuario creado.</p>
+{% elif request.query_params.get('ok') == 'clave' %}<p class="ok">Clave actualizada.</p>
+{% elif request.query_params.get('ok') == 'estado' %}<p class="ok">Estado cambiado.</p>{% endif %}
+{% if request.query_params.get('error') == 'duplicado' %}<p class="error">Ese código ya existe en la empresa.</p>
+{% elif request.query_params.get('error') == 'datos' %}<p class="error">Datos incompletos (código, nombre y clave de mínimo 2).</p>
+{% elif request.query_params.get('error') == 'permiso' %}<p class="error">Sin permiso para ese usuario.</p>
+{% elif request.query_params.get('error') == 'a2' %}<p class="error">No pude leer A2 — revisa que el driver y la carpeta de A2 estén disponibles en este equipo.</p>{% endif %}
+
+{% if usuario.rol == 'super' %}
+<h2 style="margin: 0 0 .3rem">Super usuario</h2>
+<table style="margin-bottom: 2rem">
+  <thead><tr><th>Código</th><th>Nombre</th><th>Clave</th><th>Fijar clave</th></tr></thead>
+  <tbody>
+  {% for s in superusuarios or [] %}
+  <tr>
+    <td>{{ s.codigo }}</td><td>{{ s.nombre }}</td>
+    <td>{% if s.clave %}<strong>{{ s.clave }}</strong>{% else %}<span class="sub">—</span>{% endif %}</td>
+    <td>
+      <form method="post" action="/super/clave" class="inline">
+        <input type="password" name="clave" placeholder="nueva clave (mín. 2)" class="mini" required>
+        <button type="submit">Guardar</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4">—</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 style="margin: 0 0 .3rem">Usuarios administrativos</h2>
+<p class="sub" style="margin-top:0">Ven el historial de <strong>todos</strong> los vendedores.</p>
+<div class="caja" style="margin-bottom: 1rem;">
+  <form method="post" action="/vendedores/crear">
+    <input type="hidden" name="empresa_id" value="{{ e.id }}">
+    <input type="hidden" name="rol" value="admin">
+    <label>Código del administrativo
+      <input name="codigo" required>
+    </label>
+    <label>Nombre
+      <input name="nombre" required>
+    </label>
+    <label>Clave (mínimo 2)
+      <input name="clave" type="password" required>
+    </label>
+    <button type="submit">+ Crear administrativo</button>
+  </form>
+</div>
+<table style="margin-bottom: 2rem">
+  <thead><tr><th>Código</th><th>Nombre</th><th>Clave</th>
+      <th>Estado</th><th>Cambiar clave</th><th></th></tr></thead>
+  <tbody>
+  {% for v in admins or [] %}
+  <tr>
+    <td>{{ v.codigo }}</td><td>{{ v.nombre }}</td>
+    <td>{% if v.clave %}<strong>{{ v.clave }}</strong>{% else %}<span class="sub">—</span>{% endif %}</td>
+    <td><span class="pill {{ 'pill-montado' if v.activo else 'pill-inactivo' }}">{{ "activo" if v.activo else "inactivo" }}</span></td>
+    <td>
+      <form method="post" action="/vendedores/clave" class="inline">
+        <input type="hidden" name="vendedor_id" value="{{ v.id }}">
+        <input type="password" name="clave" placeholder="nueva clave (mín. 2)" class="mini" required>
+        <button type="submit">Guardar</button>
+      </form>
+    </td>
+    <td>
+      <form method="post" action="/vendedores/estado" class="inline">
+        <input type="hidden" name="vendedor_id" value="{{ v.id }}">
+        <button type="submit">{{ "Desactivar" if v.activo else "Activar" }}</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7">Aún no hay administrativos.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2 style="margin: 0 0 .3rem">Vendedores</h2>
+{% if usuario.rol == 'super' %}
+<div class="caja" style="margin-bottom: 1rem;">
+  <form method="post" action="/vendedores/crear">
+    <input type="hidden" name="empresa_id" value="{{ e.id }}">
+    <input type="hidden" name="rol" value="vendedor">
+    <label>Código del vendedor (igual que en A2, ej. 17)
+      <input name="codigo" required>
+    </label>
+    <label>Nombre
+      <input name="nombre" required>
+    </label>
+    <label>Clave (mínimo 2)
+      <input name="clave" type="password" required>
+    </label>
+    <button type="submit">+ Crear vendedor</button>
+  </form>
+</div>
+
+<div class="caja" style="margin-bottom: 1rem;">
+  <form method="post" action="/vendedores/importar">
+    <input type="hidden" name="empresa_id" value="{{ e.id }}">
+    <p style="margin-top:0"><strong>Importar desde A2</strong><br>
+      <span class="sub">Trae todos los vendedores de Svendedores (código y nombre).
+      Los que ya existan aquí solo actualizan el nombre.</span></p>
+    <button type="submit">Traer vendedores de A2</button>
+  </form>
+</div>
+
+{% if import_resumen %}
+<div class="caja" style="margin-bottom: 1rem;">
+  <p class="ok" style="margin:0">Importación lista: {{ import_resumen[0] }} nuevos,
+    {{ import_resumen[1] }} actualizados (de {{ import_resumen[2] }} en A2).</p>
+  {% if importadas %}
+  <p class="sub" style="margin-top:.6rem">Estos no tienen clave en A2 — se crearon con
+    una clave temporal. Cámbiala cuando quieras:</p>
+  <table style="margin-top:.4rem">
+    <tr><th>Código</th><th>Nombre</th><th>Clave temporal</th></tr>
+    {% for cod, nom, clave in importadas %}
+    <tr><td>{{ cod }}</td><td>{{ nom }}</td><td><strong>{{ clave }}</strong></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<table>
+  <thead><tr><th>Código</th><th>Nombre</th><th>Clave</th>
+      <th>Estado</th><th>Cambiar clave</th>{% if usuario.rol == 'super' %}<th></th>{% endif %}</tr></thead>
+  <tbody>
+  {% for v in lista %}
+  <tr>
+    <td>{{ v.codigo }}</td><td>{{ v.nombre }}</td>
+    <td>{% if v.clave %}<strong>{{ v.clave }}</strong>{% else %}<span class="sub">—</span>{% endif %}</td>
+    <td><span class="pill {{ 'pill-montado' if v.activo else 'pill-inactivo' }}">{{ "activo" if v.activo else "inactivo" }}</span></td>
+    <td>
+      <form method="post" action="/vendedores/clave" class="inline">
+        <input type="hidden" name="vendedor_id" value="{{ v.id }}">
+        <input type="password" name="clave" placeholder="nueva clave (mín. 2)" class="mini" required>
+        <button type="submit">Guardar</button>
+      </form>
+    </td>
+    {% if usuario.rol == 'super' %}
+    <td>
+      <form method="post" action="/vendedores/estado" class="inline">
+        <input type="hidden" name="vendedor_id" value="{{ v.id }}">
+        <button type="submit">{{ "Desactivar" if v.activo else "Activar" }}</button>
+      </form>
+    </td>
+    {% endif %}
+  </tr>
+  {% else %}
+  <tr><td colspan="7">Aún no hay vendedores.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

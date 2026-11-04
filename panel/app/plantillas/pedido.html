@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Mi pedido</h1>
+{% if request.query_params.get('vacio') %}<p class="error">El carrito está vacío.</p>{% endif %}
+{% if carrito %}
+<table>
+  <thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>
+  <tbody>
+  {% for i in carrito %}
+  <tr>
+    <td>{{ i.codigo }}</td><td>{{ i.descripcion }}</td>
+    <td>
+      <form method="post" action="/pedido/cantidad" class="inline">
+        <input type="hidden" name="codigo" value="{{ i.codigo }}">
+        <input type="number" name="cantidad" value="{{ i.cantidad|int }}" min="1" step="1" class="mini">
+        <button type="submit" title="Actualizar">✓</button>
+      </form>
+    </td>
+    <td>{{ i.precio | num }}</td>
+    <td>{{ (i.cantidad * (i.precio or 0)) | num }}</td>
+    <td>
+      <form method="post" action="/pedido/quitar" class="inline">
+        <input type="hidden" name="codigo" value="{{ i.codigo }}">
+        <button type="submit" class="rojo" title="Quitar">✕</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="derecha"><strong>Total sin IVA: {{ total | num }}</strong></p>
+<div class="caja">
+  <form method="post" action="/pedido/enviar">
+    <label>Referencia (por quien se toca / nota)
+      <textarea name="referencia" rows="3" id="ref"></textarea>
+    </label>
+    <button type="submit">Enviar pedido</button>
+    <a href="/catalogo">Seguir agregando</a>
+  </form>
+</div>
+{% else %}
+<p>Tu carrito está vacío. <a href="/catalogo">Ir al catálogo</a>.</p>
+{% endif %}
+{% endblock %}

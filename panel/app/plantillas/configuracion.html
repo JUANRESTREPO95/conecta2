@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Configuración del negocio</h1>
+{% if e is none %}<p class="error">Empresa no encontrada.</p>
+{% else %}
+{% if request.query_params.get('ok') %}<p class="ok">Guardado.</p>{% endif %}
+<div class="caja">
+<form method="post" action="/configuracion">
+  <input type="hidden" name="empresa_id" value="{{ e.id }}">
+  <label>Nombre del negocio
+    <input name="nombre" value="{{ e.nombre }}" required>
+  </label>
+  <label>Depósito que ven los vendedores
+    <select name="deposito">
+      <option value="1" {% if e.deposito_modo == '1' %}selected{% endif %}>Depósito 1 (F)</option>
+      <option value="2" {% if e.deposito_modo == '2' %}selected{% endif %}>Depósito 2 (W)</option>
+      <option value="suma" {% if e.deposito_modo == 'suma' %}selected{% endif %}>Suma de ambos</option>
+    </select>
+  </label>
+  <label>Qué productos mostrar en el catálogo
+    <select name="filtro" id="filtro" onchange="mostrarMinimo()">
+      <option value="todo" {% if (e.filtro_existencia or 'todo') == 'todo' %}selected{% endif %}>Mostrar todo</option>
+      <option value="positivo" {% if e.filtro_existencia == 'positivo' %}selected{% endif %}>Mostrar únicamente con existencia</option>
+      <option value="personalizado" {% if e.filtro_existencia == 'personalizado' %}selected{% endif %}>Personalizado (existencia mínima)</option>
+    </select>
+  </label>
+  <label id="caja-minimo" style="display:none">Mostrar solo productos con existencia mayor o igual a
+    <input name="minimo" type="number" min="1" step="1" value="{{ e.existencia_minima or 1 }}">
+  </label>
+  <label>Color principal del panel
+    <input name="color_primario" value="{{ e.color_primario }}" type="color">
+  </label>
+  <label>Color de la letra de la barra
+    <input name="color_letra" value="{{ e.color_letra or '#ffffff' }}" type="color">
+  </label>
+  <label>Logo (subir imagen PNG/JPG — con fondo transparente se ve mejor)
+    <input name="logo_file" type="file" accept="image/*">
+  </label>
+  {% if e.logo %}<p class="sub">Logo actual: <img src="{{ e.logo }}" alt="logo" style="height:34px;vertical-align:middle"> &nbsp;
+    <label style="font-weight:400"><input type="checkbox" name="quitar_logo" value="1"> Quitar logo</label></p>{% endif %}
+  <button type="submit">Guardar</button>
+</form>
+</div>
+<script>
+function mostrarMinimo() {
+  var m = document.getElementById('filtro').value;
+  document.getElementById('caja-minimo').style.display =
+    (m === 'personalizado') ? 'block' : 'none';
+}
+mostrarMinimo();
+</script>
+{% endif %}
+{% endblock %}

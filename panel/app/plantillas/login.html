@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div id="login-caja">
+  <h1>Conecta2</h1>
+  <p class="sub">{{ nombre_negocio }}</p>
+  {% if request.query_params.get('error') %}<p class="error">Código o clave incorrectos.</p>{% endif %}
+  {% if request.query_params.get('creado') %}<p class="ok">Usuario creado. Entra con tus claves.</p>{% endif %}
+  <form method="post" action="/login">
+    <label>Código / usuario
+      <input name="codigo" required autofocus autocomplete="username">
+    </label>
+    <label>Clave
+      <input name="clave" type="password" required autocomplete="current-password">
+    </label>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+{% endblock %}

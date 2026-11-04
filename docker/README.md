@@ -1,0 +1,52 @@
+# Conecta2 — panel en Docker
+
+Panel de pedidos (FastAPI + SQLite) listo para correr en un contenedor.
+No incluye A2: el A2 se queda en la PC del negocio, donde corre el agente.
+
+## Qué hay
+
+| Archivo | Qué es |
+|---|---|
+| `Dockerfile` | Imagen con Python 3.11 y el panel |
+| `docker-compose.yml` | Servicio `conecta2` en el puerto 8050, datos persistentes |
+| `panel/` | Código del panel |
+
+## Cómo se levanta
+
+En la carpeta donde está `docker-compose.yml`:
+
+```bash
+docker compose up -d --build
+```
+
+Queda en `http://IP-del-servidor:8050`.
+
+- **Primera vez:** abrir esa dirección en el navegador → el panel pide crear el
+  **super usuario**.
+- La base de datos, los logos y la llave de cifrado quedan en `./datos`
+  (se crea sola). **Respaldar = copiar esa carpeta.**
+- Para actualizar el código: reemplazar `panel/` y ejecutar de nuevo
+  `docker compose up -d --build`.
+- Para detener: `docker compose down` (los datos se conservan).
+
+## Token del agente (por empresa)
+
+```bash
+docker compose exec conecta2 python crear_agente_token.py --empresa 1
+```
+
+También se puede ver y copiar desde el panel: **Empresas → Token del agente**
+(botón Renovar para cambiarlo).
+
+## Detrás de un proxy con HTTPS
+
+El contenedor escucha en el puerto 8050 en HTTP plano; el certificado HTTPS se
+pone delante con el proxy (por ejemplo un reverse proxy con Let's Encrypt).
+El agente debe apuntar a la URL `https://...` resultante.
+
+## Notas
+
+- Zona horaria `America/Bogota` (UTC-5).
+- El puerto se cambia en `docker-compose.yml` (`"8050:8050"`, la parte izquierda)
+  y en `CONECTA2_PUERTO` de la imagen si se cambia el interno.
+- No hace falta abrir ninguna base de datos aparte: SQLite va dentro de `datos/`.
