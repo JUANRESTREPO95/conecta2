@@ -1,0 +1,41 @@
+AGENTE CONECTA2 - LEAME
+=======================
+
+Que es:
+  El programa que corre en el PC de A2. Sube al panel el catalogo, las
+  existencias, los clientes, los vendedores y los precios; y monta en A2 los
+  pedidos hechos en el panel.
+
+Antes de instalar (una sola vez):
+  1. A2 instalado y funcionando (que abra Empre001).
+  2. Driver DBISAM ODBC 4.29 (32 BITS) instalado.
+     (El agente ya trae Python y pyodbc dentro del .exe.)
+  3. Token del agente: panel -> Empresas -> Token del agente -> Copiar.
+
+Instalar:
+  1. Copiar SOLO Instalador Conecta2.exe a ese PC.
+  2. Clic derecho -> Ejecutar como administrador (aceptar el aviso).
+  3. Responder:
+       - URL del panel:      https://pedidos.col.lt   (sin / al final)
+       - TOKEN del agente:   el que copiaste
+       - Carpeta Data de A2: ...\Empre001\Data
+       - Deposito:           1 (F) o 2 (W)
+  4. Al final, decir SI para abrirlo.
+
+El instalador:
+  - Verifica que el driver DBISAM este instalado.
+  - Copia el agente a C:\Conecta2\agente
+  - Guarda la configuracion y prueba la conexion con el panel.
+  - Crea el acceso directo "Conecta2 Agente" en el Escritorio.
+
+NO instala Python ni el driver: eso se prepara a mano una sola vez.
+El agente queda en la bandeja junto al reloj (doble clic para ver el estado,
+clic derecho para Configuracion o Salir). Abrir UNA sola instancia.
+
+Registros:
+  C:\Conecta2\instalador.log              (instalacion)
+  C:\Conecta2\agente\log_agente.txt       (lo que hace el agente)
+
+Actualizar: cerrar el agente (Salir), ejecutar el instalador nuevo y volver
+a responder los datos. Para cambiar solo un dato (token, deposito) no hace
+falta reinstalar: ventana del agente -> Configuracion.

@@ -1,0 +1,13 @@
+# La imagen solo necesita panel/ y docker/: el resto no se envía al build
+agente/
+datos/
+**/datos/
+*.db
+*.key
+*.env
+.env
+__pycache__/
+*.pyc
+.git/
+*.log
+README.md
