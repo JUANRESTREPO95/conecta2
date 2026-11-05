@@ -6,6 +6,7 @@ El super usuario se crea en el primer arranque, en /primer-vez.
 from datetime import datetime
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -267,6 +268,88 @@ async def cuerpo_json(request: Request) -> list:
     return datos if isinstance(datos, list) else []
 
 
+# Las escrituras del agente se hacen en un hilo aparte (run_in_threadpool)
+# para que NO bloqueen el bucle de eventos: si no, mientras sube un lote el
+# panel entero queda sin responder para todos los usuarios.
+def _error_ocupado(error) -> Response:
+    return Response('{"error": "panel ocupado, reintenta en un momento"}',
+                    status_code=503, media_type="application/json")
+
+
+def _guarda_productos(empresa_id: int, lote: list) -> int:
+    con = db.conectar()
+    with con:
+        for p in lote:
+            codigo = str(p.get("codigo") or "")     # tal cual, sin recortar
+            if not codigo.strip():
+                continue
+            con.execute(_SQL_PRODUCTO, {
+                "e": empresa_id, "codigo": codigo,
+                "codigo_a2": str(p.get("codigo_a2") or p.get("codigo") or ""),
+                "descripcion": p.get("descripcion"), "marca": p.get("marca"),
+                "categoria": p.get("categoria"), "unidad": p.get("unidad"),
+                "moneda": p.get("moneda") or 1,
+                "activo": 1 if p.get("activo") else 0,
+                "internet": 1 if p.get("internet") else 0})
+    return len(lote)
+
+
+def _guarda_stock(empresa_id: int, lote: list) -> int:
+    con = db.conectar()
+    with con:
+        for f in lote:
+            con.execute(
+                "INSERT INTO stock (empresa_id, codigo_producto, deposito, "
+                "existencia, actualizado) VALUES (?, ?, ?, ?, datetime('now','localtime')) "
+                "ON CONFLICT(empresa_id, codigo_producto, deposito) DO UPDATE SET "
+                "existencia=excluded.existencia, actualizado=excluded.actualizado",
+                (empresa_id, str(f["codigo"]), int(f["deposito"]),
+                 float(f["existencia"] or 0)))
+    return len(lote)
+
+
+def _guarda_precios(empresa_id: int, lote: list, origen: str) -> int:
+    """Actualiza precios por código (con índice) sin recorrer toda la tabla."""
+    con = db.conectar()
+    cur = con.cursor()
+    with con:
+        for f in lote:
+            codigo = str(f["codigo"])
+            precio = float(f["precio"])
+            if origen == "catalogo":
+                # el precio de la lista de A2 manda (solo si cambió)
+                sql = ("UPDATE productos SET precio = ?, "
+                       "actualizado = datetime('now','localtime') "
+                       "WHERE empresa_id = ? AND codigo = ? "
+                       "AND (precio IS NULL OR precio <> ?)")
+                valores = (precio, empresa_id, codigo, precio)
+            else:
+                # la última venta solo rellena productos sin precio de lista
+                sql = ("UPDATE productos SET precio = ?, "
+                       "actualizado = datetime('now','localtime') "
+                       "WHERE empresa_id = ? AND codigo = ? "
+                       "AND (precio IS NULL OR precio <= 0)")
+                valores = (precio, empresa_id, codigo)
+            cur.execute(sql, valores)
+            if cur.rowcount == 0:
+                # el código puede estar solo en codigo_a2 (columna indexada)
+                if origen == "catalogo":
+                    cur.execute(
+                        "UPDATE productos SET precio = ?, "
+                        "actualizado = datetime('now','localtime') "
+                        "WHERE empresa_id = ? AND codigo_a2 = ? "
+                        "AND (precio IS NULL OR precio <> ?)",
+                        (precio, empresa_id, codigo, precio))
+                else:
+                    cur.execute(
+                        "UPDATE productos SET precio = ?, "
+                        "actualizado = datetime('now','localtime') "
+                        "WHERE empresa_id = ? AND codigo_a2 = ? "
+                        "AND (precio IS NULL OR precio <= 0)",
+                        (precio, empresa_id, codigo))
+    return len(lote)
+
+
 @app.post("/api/catalogo")
 async def api_catalogo(request: Request):
     usuario = usuario_agente(request)
@@ -277,21 +360,12 @@ async def api_catalogo(request: Request):
         return Response('{"error": "agente sin empresa"}', status_code=400,
                         media_type="application/json")
     lote = await cuerpo_json(request)
-    con = db.conectar()
-    for p in lote:
-        codigo = str(p.get("codigo") or "")     # tal cual, sin recortar
-        if not codigo.strip():
-            continue
-        con.execute(_SQL_PRODUCTO, {
-            "e": usuario["empresa_id"], "codigo": codigo,
-            "codigo_a2": str(p.get("codigo_a2") or p.get("codigo") or ""),
-            "descripcion": p.get("descripcion"), "marca": p.get("marca"),
-            "categoria": p.get("categoria"), "unidad": p.get("unidad"),
-            "moneda": p.get("moneda") or 1,
-            "activo": 1 if p.get("activo") else 0,
-            "internet": 1 if p.get("internet") else 0})
-    con.commit()
-    return {"ok": True, "guardados": len(lote)}
+    try:
+        guardados = await run_in_threadpool(_guarda_productos,
+                                            usuario["empresa_id"], lote)
+    except Exception as e:
+        return _error_ocupado(e)
+    return {"ok": True, "guardados": guardados}
 
 
 @app.post("/api/stock")
@@ -304,17 +378,31 @@ async def api_stock(request: Request):
         return Response('{"error": "agente sin empresa"}', status_code=400,
                         media_type="application/json")
     lote = await cuerpo_json(request)
-    con = db.conectar()
-    for f in lote:
-        con.execute(
-            "INSERT INTO stock (empresa_id, codigo_producto, deposito, "
-            "existencia, actualizado) VALUES (?, ?, ?, ?, datetime('now','localtime')) "
-            "ON CONFLICT(empresa_id, codigo_producto, deposito) DO UPDATE SET "
-            "existencia=excluded.existencia, actualizado=excluded.actualizado",
-            (usuario["empresa_id"], str(f["codigo"]), int(f["deposito"]),
-             float(f["existencia"] or 0)))
-    con.commit()
-    return {"ok": True, "guardados": len(lote)}
+    try:
+        guardados = await run_in_threadpool(_guarda_stock,
+                                            usuario["empresa_id"], lote)
+    except Exception as e:
+        return _error_ocupado(e)
+    return {"ok": True, "guardados": guardados}
+
+
+@app.get("/api/estado")
+def api_estado(request: Request):
+    """Estado mínimo para que el agente sepa si le faltan precios por subir."""
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return Response('{"error": "token inválido"}', status_code=401,
+                        media_type="application/json")
+    if not usuario["empresa_id"]:
+        return Response('{"error": "agente sin empresa"}', status_code=400,
+                        media_type="application/json")
+    fila = db.fila(
+        "SELECT COUNT(*) AS productos, SUM(CASE WHEN precio IS NULL "
+        "OR precio <= 0 THEN 1 ELSE 0 END) AS sin_precio FROM productos "
+        "WHERE empresa_id = ?", (usuario["empresa_id"],))
+    return {"empresa": usuario["empresa_id"],
+            "productos": fila["productos"] or 0,
+            "sin_precio": fila["sin_precio"] or 0}
 
 
 @app.post("/api/precios")
@@ -324,25 +412,49 @@ async def api_precios(request: Request, origen: str = "venta"):
         return Response('{"error": "token inválido"}', status_code=401,
                         media_type="application/json")
     lote = await cuerpo_json(request)
+    try:
+        total = await run_in_threadpool(_guarda_precios,
+                                        usuario["empresa_id"], lote, origen)
+    except Exception as e:
+        return _error_ocupado(e)
+    return {"ok": True, "precios": total}
+
+
+def _guarda_clientes(empresa_id: int, lote: list) -> int:
     con = db.conectar()
-    for f in lote:
-        codigo = str(f["codigo"])
-        if origen == "catalogo":
-            # el precio de la lista de A2 manda
-            sql = ("UPDATE productos SET precio = ?, "
-                   "actualizado = datetime('now','localtime') "
-                   "WHERE empresa_id = ? AND (codigo = ? OR codigo_a2 = ?)")
-            valores = (float(f["precio"]), usuario["empresa_id"], codigo, codigo)
-        else:
-            # la última venta solo rellena productos sin precio de lista
-            sql = ("UPDATE productos SET precio = ?, "
-                   "actualizado = datetime('now','localtime') "
-                   "WHERE empresa_id = ? AND (codigo = ? OR codigo_a2 = ?) "
-                   "AND (precio IS NULL OR precio <= 0)")
-            valores = (float(f["precio"]), usuario["empresa_id"], codigo, codigo)
-        con.execute(sql, valores)
-    con.commit()
-    return {"ok": True, "precios": len(lote)}
+    with con:
+        for c in lote:
+            codigo = str(c.get("codigo") or "").strip()
+            if not codigo:
+                continue
+            con.execute(
+                "INSERT INTO clientes (empresa_id, codigo, nombre, nit, rif, "
+                "actualizado) VALUES (?, ?, ?, ?, ?, datetime('now','localtime')) "
+                "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
+                "nombre=excluded.nombre, nit=excluded.nit, rif=excluded.rif, "
+                "actualizado=excluded.actualizado",
+                (empresa_id, codigo, c.get("nombre"), c.get("nit"),
+                 c.get("rif")))
+    return len(lote)
+
+
+def _guarda_vendedores(empresa_id: int, lote: list) -> int:
+    con = db.conectar()
+    with con:
+        for v in lote:
+            codigo = str(v.get("codigo") or "").strip()
+            if not codigo:
+                continue
+            con.execute(
+                "INSERT INTO vendedores_a2 (empresa_id, codigo, nombre, activo, "
+                "clave_a2, actualizado) VALUES (?, ?, ?, ?, ?, "
+                "datetime('now','localtime')) "
+                "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
+                "nombre=excluded.nombre, activo=excluded.activo, "
+                "clave_a2=excluded.clave_a2, actualizado=excluded.actualizado",
+                (empresa_id, codigo, v.get("nombre"),
+                 1 if v.get("activo") else 0, v.get("clave_a2")))
+    return len(lote)
 
 
 @app.post("/api/clientes")
@@ -355,21 +467,12 @@ async def api_clientes(request: Request):
         return Response('{"error": "agente sin empresa"}', status_code=400,
                         media_type="application/json")
     lote = await cuerpo_json(request)
-    con = db.conectar()
-    for c in lote:
-        codigo = str(c.get("codigo") or "").strip()
-        if not codigo:
-            continue
-        con.execute(
-            "INSERT INTO clientes (empresa_id, codigo, nombre, nit, rif, "
-            "actualizado) VALUES (?, ?, ?, ?, ?, datetime('now','localtime')) "
-            "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
-            "nombre=excluded.nombre, nit=excluded.nit, rif=excluded.rif, "
-            "actualizado=excluded.actualizado",
-            (usuario["empresa_id"], codigo, c.get("nombre"), c.get("nit"),
-             c.get("rif")))
-    con.commit()
-    return {"ok": True, "guardados": len(lote)}
+    try:
+        guardados = await run_in_threadpool(_guarda_clientes,
+                                            usuario["empresa_id"], lote)
+    except Exception as e:
+        return _error_ocupado(e)
+    return {"ok": True, "guardados": guardados}
 
 
 @app.post("/api/vendedores")
@@ -382,22 +485,12 @@ async def api_vendedores(request: Request):
         return Response('{"error": "agente sin empresa"}', status_code=400,
                         media_type="application/json")
     lote = await cuerpo_json(request)
-    con = db.conectar()
-    for v in lote:
-        codigo = str(v.get("codigo") or "").strip()
-        if not codigo:
-            continue
-        con.execute(
-            "INSERT INTO vendedores_a2 (empresa_id, codigo, nombre, activo, "
-            "clave_a2, actualizado) VALUES (?, ?, ?, ?, ?, "
-            "datetime('now','localtime')) "
-            "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
-            "nombre=excluded.nombre, activo=excluded.activo, "
-            "clave_a2=excluded.clave_a2, actualizado=excluded.actualizado",
-            (usuario["empresa_id"], codigo, v.get("nombre"),
-             1 if v.get("activo") else 0, v.get("clave_a2")))
-    con.commit()
-    return {"ok": True, "guardados": len(lote)}
+    try:
+        guardados = await run_in_threadpool(_guarda_vendedores,
+                                            usuario["empresa_id"], lote)
+    except Exception as e:
+        return _error_ocupado(e)
+    return {"ok": True, "guardados": guardados}
 
 
 @app.get("/clientes/buscar")

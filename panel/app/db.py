@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS productos (
     UNIQUE (empresa_id, codigo)
 );
 CREATE INDEX IF NOT EXISTS idx_productos_desc ON productos(empresa_id, descripcion);
+CREATE INDEX IF NOT EXISTS idx_productos_codigo_a2 ON productos(empresa_id, codigo_a2);
 
 CREATE TABLE IF NOT EXISTS stock (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +144,13 @@ def conectar() -> sqlite3.Connection:
         con = sqlite3.connect(str(config.BD), timeout=30)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA foreign_keys = ON")
+        # WAL: las lecturas no se bloquean mientras el agente escribe
+        try:
+            con.execute("PRAGMA journal_mode = WAL")
+            con.execute("PRAGMA synchronous = NORMAL")
+            con.execute("PRAGMA busy_timeout = 30000")
+        except sqlite3.DatabaseError:
+            pass
         _local.con = con
     return con
 
