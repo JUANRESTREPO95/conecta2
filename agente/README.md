@@ -18,7 +18,7 @@ El panel no se instala acá: ese vive en el VPS (Portainer).
 | # | Qué | Cómo |
 |---|-----|------|
 | 1 | **A2 instalado y funcionando** | Que abra la empresa (`Empre001`) sin errores. |
-| 2 | **Driver DBISAM ODBC 4.29 (32 bits)** | Ejecutar `DBISAM_ODBC_429b132bit.exe` y reiniciar si lo pide. El instalador del agente avisa si no lo encuentra. |
+| 2 | **Driver DBISAM ODBC 4.29 (32 bits)** | Ejecutar `DBISAM_ODBC_429b132bit.exe` (viene en esta misma carpeta / en `agente/` del repo) y reiniciar si lo pide. El instalador del agente avisa si no lo encuentra. |
 | 3 | **Token del agente** | En el panel: **Empresas → Token del agente → Copiar**. Es por empresa; si se renueva, hay que cambiarlo en el agente. |
 | 4 | **Datos de la empresa** | Tener a mano la **URL del panel** (ej. `https://pedidos.col.lt`) y la **carpeta Data de A2** (ej. `C:\A2\Empre001\Data`). |
 
@@ -98,10 +98,17 @@ A partir de ahí el agente queda **en la bandeja, junto al reloj**, sin ventana.
 | `C:\Conecta2\instalador.log` | Registro de la instalación |
 | `Escritorio\Conecta2 Agente.lnk` | Acceso directo |
 
-En esta carpeta (`AGENTE`) están el instalador, el `.exe` suelto y el kit para
-regenerar el instalador (`instalar.ps1`, `sfx.ini`). **Solo se distribuye
-`Instalador Conecta2.exe`**; no copies `config_agente.json` ni `datos\` a otro
-PC, porque llevan el token y datos del equipo anterior.
+En esta carpeta (`AGENTE`) están el instalador, el `.exe` suelto, el
+**driver DBISAM** (`DBISAM_ODBC_429b132bit.exe`) y el kit para regenerar el
+instalador (`instalar.ps1`, `sfx.ini`).
+
+Para un PC nuevo se llevan **dos archivos**: `DBISAM_ODBC_429b132bit.exe` (se
+instala primero) e `Instalador Conecta2.exe`. No copies `config_agente.json`
+ni `datos\` a otro PC, porque llevan el token y datos del equipo anterior.
+
+> El driver DBISAM es de Softway: se puede guardar en el repositorio privado
+> como respaldo, pero no publicarlo ni repartirlo fuera de las licencias del
+> cliente.
 
 ---
 
