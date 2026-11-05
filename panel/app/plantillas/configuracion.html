@@ -58,11 +58,30 @@
     <input name="digitos_numero" type="number" min="1" max="6" step="1" value="{{ e.digitos_numero or 4 }}">
   </label>
   <label>Clientes en los pedidos
-    <select name="usar_clientes">
+    <select name="usar_clientes" id="usar_clientes" onchange="mostrarClienteDefecto()">
       <option value="1" {% if e.usar_clientes %}selected{% endif %}>Activado: el vendedor puede elegir cliente</option>
-      <option value="" {% if not e.usar_clientes %}selected{% endif %}>Desactivado: todo va a CONSUMIDOR FINAL (2222222222)</option>
+      <option value="" {% if not e.usar_clientes %}selected{% endif %}>Desactivado: el vendedor no ve el cliente</option>
     </select>
   </label>
+  <div id="caja-cliente-defecto" class="caja-cliente-defecto">
+    <label>Cliente predeterminado (todo pedido sin cliente va a este)
+      <input type="text" id="cp-buscar" placeholder="Escribe el nombre, código o NIT…"
+             autocomplete="off" value="{{ e.cliente_predeterminado_nombre or '' }}">
+      <input type="hidden" name="cliente_predeterminado" id="cp-codigo"
+             value="{{ e.cliente_predeterminado_codigo or '' }}">
+    </label>
+    <div id="cp-resultados" class="cliente-resultados"></div>
+    <p class="sub" id="cp-elegido">
+      {% if e.cliente_predeterminado_codigo %}
+      Cliente predeterminado: <strong>{{ e.cliente_predeterminado_nombre }}</strong>
+      — NIT {{ e.cliente_predeterminado_nit or '—' }}
+      <button type="button" class="mini" id="cp-quitar">Quitar</button>
+      {% else %}
+      Sin cliente predeterminado: si se deja vacío, los pedidos van como
+      CONSUMIDOR FINAL (2222222222).
+      {% endif %}
+    </p>
+  </div>
   <label>Color de la letra de la barra
     <input name="color_letra" value="{{ e.color_letra or '#ffffff' }}" type="color">
   </label>
@@ -111,6 +130,90 @@ mostrarMinimo();
   });
   entrada.addEventListener('input', pintaVista);
   pintaVista();
+})();
+</script>
+<script>
+function mostrarClienteDefecto() {
+  var usa = document.getElementById('usar_clientes');
+  var caja = document.getElementById('caja-cliente-defecto');
+  if (!usa || !caja) return;
+  // cuando el vendedor no ve el cliente, este es el que se usa en A2
+  caja.style.display = usa.value === '1' ? 'none' : 'block';
+}
+mostrarClienteDefecto();
+(function () {
+  var entrada = document.getElementById('cp-buscar');
+  if (!entrada) return;
+  var hCodigo = document.getElementById('cp-codigo');
+  var caja = document.getElementById('cp-resultados');
+  var elegido = document.getElementById('cp-elegido');
+  var temporizador = null;
+
+  function esc(v) {
+    return String(v || '').replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function pintarElegido(c) {
+    elegido.innerHTML = 'Cliente predeterminado: <strong>' +
+      esc(c.nombre || c.codigo) + '</strong>' +
+      (c.nit ? ' — NIT ' + esc(c.nit) : '') +
+      ' <button type="button" class="mini" id="cp-quitar">Quitar</button>';
+    var b = document.getElementById('cp-quitar');
+    if (b) b.addEventListener('click', quitar);
+  }
+  function quitar() {
+    hCodigo.value = '';
+    entrada.value = '';
+    caja.innerHTML = '';
+    elegido.innerHTML = 'Sin cliente predeterminado: si se deja vacío, los ' +
+      'pedidos van como CONSUMIDOR FINAL (2222222222).';
+  }
+  function elegir(c) {
+    hCodigo.value = c.codigo || '';
+    entrada.value = c.nombre || c.codigo;
+    pintarElegido(c);
+    caja.innerHTML = '';
+  }
+  function buscar() {
+    var q = entrada.value.trim();
+    if (q.length < 2) { caja.innerHTML = ''; return; }
+    fetch('/clientes/buscar?limite=20&q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var items = d.items || [];
+        caja.innerHTML = '';
+        var exacto = null;
+        items.forEach(function (c) {
+          if (!exacto && ((String(c.nit || '').trim() === q) ||
+                          (String(c.codigo || '').trim() === q))) exacto = c;
+          var fila = document.createElement('button');
+          fila.type = 'button';
+          fila.className = 'cliente-opcion';
+          fila.innerHTML = '<span><strong>' + esc(c.nombre) + '</strong></span>' +
+            '<span class="sub">NIT ' + esc(c.nit || '—') + ' · ' +
+            esc(c.codigo) + '</span>';
+          fila.addEventListener('click', function () { elegir(c); });
+          caja.appendChild(fila);
+        });
+        if (!items.length) {
+          caja.innerHTML = '<p class="sub">Sin coincidencias en los clientes ' +
+            'de A2 (se actualizan con el agente).</p>';
+        } else if (exacto) {
+          elegir(exacto);
+        } else if (items.length === 1) {
+          elegir(items[0]);
+        }
+      })
+      .catch(function () {});
+  }
+  var quitarInicial = document.getElementById('cp-quitar');
+  if (quitarInicial) quitarInicial.addEventListener('click', quitar);
+  entrada.addEventListener('input', function () {
+    hCodigo.value = '';
+    clearTimeout(temporizador);
+    temporizador = setTimeout(buscar, 200);
+  });
 })();
 </script>
 {% endif %}

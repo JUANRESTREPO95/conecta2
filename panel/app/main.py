@@ -107,6 +107,12 @@ class Redirige(Exception):
     pass
 
 
+@app.exception_handler(Redirige)
+async def redirige_al_login(request: Request, exc: Redirige):
+    """Sin sesión (o sin permiso para la ruta) siempre se va al login."""
+    return RedirectResponse("/login", status_code=303)
+
+
 @app.get("/")
 def raiz(request: Request):
     usuario = usuario_actual(request)
@@ -142,6 +148,69 @@ def primer_vez_post(request: Request, codigo: str = Form(...), nombre: str = For
 
 
 # ---------- login ----------
+
+def _icono_png(tamano: int = 180) -> bytes:
+    """Ícono del sitio: logo de la empresa o monograma sobre su color."""
+    import io as _io
+    from PIL import Image, ImageDraw, ImageFont
+
+    empresa = db.fila("SELECT * FROM empresas WHERE activa = 1 ORDER BY id LIMIT 1")
+    color = (empresa["color_primario"] if empresa else "#1e40af") or "#1e40af"
+    color = color.lstrip("#")
+    rgb = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+    img = Image.new("RGBA", (tamano, tamano), rgb + (255,))
+    d = ImageDraw.Draw(img)
+    logo_bytes = None
+    if empresa:
+        try:
+            from app.hoja import _logo_bytes as _logo
+            logo_bytes = _logo(dict(empresa), alto_px=int(tamano * 0.62))
+        except Exception:
+            logo_bytes = None
+    if logo_bytes:
+        lg = Image.open(_io.BytesIO(logo_bytes))
+        x = (tamano - lg.width) // 2
+        y = (tamano - lg.height) // 2
+        img.paste(lg, (x, y), lg)
+    else:
+        nombre = (empresa["nombre"] if empresa else "C2") or "C2"
+        texto = "".join(p[0] for p in nombre.split()[:2]).upper() or "C2"
+        try:
+            fuente = ImageFont.truetype("arialbd.ttf", int(tamano * 0.42))
+        except OSError:
+            fuente = ImageFont.load_default()
+        caja = d.textbbox((0, 0), texto, font=fuente)
+        d.text(((tamano - (caja[2] - caja[0])) / 2 - caja[0],
+                (tamano - (caja[3] - caja[1])) / 2 - caja[1]),
+               texto, font=fuente, fill="white")
+    buf = _io.BytesIO()
+    img.convert("RGB").save(buf, "PNG")
+    return buf.getvalue()
+
+
+@app.get("/apple-touch-icon.png")
+def apple_touch_icon():
+    return Response(_icono_png(180), media_type="image/png",
+                    headers={"Cache-Control": "max-age=3600"})
+
+
+@app.get("/manifest.webmanifest")
+def manifiesto(request: Request):
+    empresa = db.fila("SELECT nombre, color_primario FROM empresas "
+                      "WHERE activa = 1 ORDER BY id LIMIT 1")
+    return {
+        "name": (empresa["nombre"] if empresa else "Conecta2"),
+        "short_name": ((empresa["nombre"] if empresa else "Conecta2")[:12]),
+        "start_url": "/catalogo",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": (empresa["color_primario"] if empresa else "#1e40af"),
+        "icons": [
+            {"src": "/apple-touch-icon.png", "sizes": "180x180",
+             "type": "image/png", "purpose": "any"},
+        ],
+    }
+
 
 @app.get("/login")
 def login_get(request: Request):
@@ -292,12 +361,13 @@ async def api_clientes(request: Request):
         if not codigo:
             continue
         con.execute(
-            "INSERT INTO clientes (empresa_id, codigo, nombre, nit, actualizado) "
-            "VALUES (?, ?, ?, ?, datetime('now','localtime')) "
+            "INSERT INTO clientes (empresa_id, codigo, nombre, nit, rif, "
+            "actualizado) VALUES (?, ?, ?, ?, ?, datetime('now','localtime')) "
             "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
-            "nombre=excluded.nombre, nit=excluded.nit, "
+            "nombre=excluded.nombre, nit=excluded.nit, rif=excluded.rif, "
             "actualizado=excluded.actualizado",
-            (usuario["empresa_id"], codigo, c.get("nombre"), c.get("nit")))
+            (usuario["empresa_id"], codigo, c.get("nombre"), c.get("nit"),
+             c.get("rif")))
     con.commit()
     return {"ok": True, "guardados": len(lote)}
 
@@ -341,7 +411,7 @@ def clientes_buscar(request: Request, q: str = "", limite: int = 15):
         return {"items": []}
     patron = f"%{q.strip().upper()}%"
     filas_cli = db.filas(
-        "SELECT codigo, nombre, nit FROM clientes WHERE empresa_id = ? "
+        "SELECT codigo, nombre, nit, rif FROM clientes WHERE empresa_id = ? "
         "AND (UPPER(nombre) LIKE ? OR UPPER(codigo) LIKE ? OR nit LIKE ?) "
         "ORDER BY nombre LIMIT ?",
         (empresa["id"], patron, patron, patron, limite))
@@ -384,11 +454,23 @@ def api_pendientes(request: Request):
         return Response('{"error": "token inválido"}', status_code=401,
                         media_type="application/json")
     lista = db.filas(
-        "SELECT p.id, p.numero, p.referencia, p.cliente_nit, p.cliente_nombre, "
+        "SELECT p.id, p.numero, p.referencia, p.cliente_codigo, "
+        "p.cliente_nit, p.cliente_nombre, "
         "u.codigo AS vendedor, u.nombre AS vendedor_nombre FROM pedidos p "
         "JOIN usuarios u ON u.id = p.vendedor_id "
         "WHERE p.empresa_id = ? AND p.estado = 'pendiente' ORDER BY p.id",
         (usuario["empresa_id"],))
+    # cliente predeterminado de la empresa (cuando el vendedor no elige uno)
+    predeterminado = db.fila(
+        "SELECT cliente_predeterminado_codigo, cliente_predeterminado_nombre, "
+        "cliente_predeterminado_nit, cliente_predeterminado_rif FROM empresas "
+        "WHERE id = ?", (usuario["empresa_id"],))
+    def_nombre = ((predeterminado["cliente_predeterminado_nombre"]
+                   if predeterminado else "") or "").strip()
+    def_nit = ((predeterminado["cliente_predeterminado_nit"]
+                if predeterminado else "") or "").strip()
+    def_rif = ((predeterminado["cliente_predeterminado_rif"]
+                if predeterminado else "") or "").strip()
     de_vuelta = []
     for p in lista:
         lineas = db.filas(
@@ -397,8 +479,18 @@ def api_pendientes(request: Request):
             "LEFT JOIN productos pr ON pr.empresa_id = (SELECT empresa_id FROM "
             "pedidos WHERE id = l.pedido_id) AND pr.codigo = l.codigo "
             "WHERE l.pedido_id = ? ORDER BY l.id", (p["id"],))
-        de_vuelta.append({k: p[k] for k in p.keys()} |
-                         {"lineas": [dict(l) for l in lineas]})
+        pedido = {k: p[k] for k in p.keys()}
+        pedido["cliente_nombre"] = (p["cliente_nombre"] or "").strip() or \
+            def_nombre
+        pedido["cliente_nit"] = (p["cliente_nit"] or "").strip() or def_nit
+        rif = def_rif
+        if p["cliente_codigo"]:
+            fila_cli = db.fila(
+                "SELECT rif FROM clientes WHERE empresa_id = ? AND codigo = ?",
+                (usuario["empresa_id"], p["cliente_codigo"]))
+            rif = ((fila_cli["rif"] if fila_cli else "") or "").strip()
+        pedido["cliente_rif"] = rif
+        de_vuelta.append(pedido | {"lineas": [dict(l) for l in lineas]})
     return {"pedidos": de_vuelta}
 
 
@@ -743,6 +835,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        filtro: str = Form("todo"),
                        minimo: int = Form(0),
                        usar_clientes: str = Form(""),
+                       cliente_predeterminado: str = Form(""),
                        formato_numero: str = Form("{vendedor}-{anio}{numero}"),
                        reinicio_numero: str = Form("anual"),
                        digitos_numero: int = Form(4)):
@@ -767,14 +860,32 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     if reinicio_numero not in ("anual", "mensual", "diario"):
         reinicio_numero = "anual"
     digitos_numero = max(1, min(6, digitos_numero or 4))
+    # cliente predeterminado: se guarda el nombre/NIT/RIF del código elegido
+    codigo_def = cliente_predeterminado.strip()
+    nombre_def = nit_def = rif_def = None
+    if codigo_def:
+        elegido = db.fila(
+            "SELECT nombre, nit, rif FROM clientes WHERE empresa_id = ? "
+            "AND codigo = ?", (empresa_id, codigo_def))
+        if elegido:
+            nombre_def = elegido["nombre"]
+            nit_def = elegido["nit"]
+            rif_def = elegido["rif"]
+        else:
+            codigo_def = ""
     db.ejecutar("UPDATE empresas SET nombre = ?, deposito_modo = ?, "
                 "ocultar_agotados = ?, color_primario = ?, color_secundario = ?, "
                 "color_letra = ?, logo = ?, filtro_existencia = ?, "
-                "existencia_minima = ?, usar_clientes = ?, formato_numero = ?, "
+                "existencia_minima = ?, usar_clientes = ?, "
+                "cliente_predeterminado_codigo = ?, "
+                "cliente_predeterminado_nombre = ?, "
+                "cliente_predeterminado_nit = ?, "
+                "cliente_predeterminado_rif = ?, formato_numero = ?, "
                 "reinicio_numero = ?, digitos_numero = ? WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_primario, color_letra, logo,
                  filtro, max(0, minimo), 1 if usar_clientes else 0,
+                 codigo_def or None, nombre_def, nit_def, rif_def,
                  formato_numero.strip(), reinicio_numero, digitos_numero,
                  empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
@@ -1038,16 +1149,15 @@ def pedido_enviar(request: Request, referencia: str = Form(""),
     total = sum(i["cantidad"] * (i["precio"] or 0) for i in carrito)
     if not empresa["usar_clientes"]:
         cliente_codigo, cliente_nombre, cliente_nit = "", "", ""
-    cliente_nit = cliente_nit.strip() or "2222222222"
-    if not cliente_nombre.strip():
-        cliente_nombre = "CONSUMIDOR FINAL" if cliente_nit == "2222222222" else ""
+    # si no se eligió cliente se deja vacío: el agente usa el predeterminado
+    # configurado para la empresa (o CONSUMIDOR FINAL si no hay ninguno)
     cur = db.ejecutar(
         "INSERT INTO pedidos (empresa_id, vendedor_id, numero, referencia, estado, "
         "total, cliente_codigo, cliente_nombre, cliente_nit) "
         "VALUES (?, ?, ?, ?, 'pendiente', ?, ?, ?, ?)",
         (empresa["id"], usuario["id"], numero, referencia.strip(), total,
          cliente_codigo.strip() or None, cliente_nombre.strip() or None,
-         cliente_nit))
+         cliente_nit.strip() or None))
     pedido_id = cur.lastrowid
     for item in carrito:
         db.ejecutar("INSERT INTO pedido_lineas (pedido_id, codigo, descripcion, "

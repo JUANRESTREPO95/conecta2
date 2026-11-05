@@ -106,9 +106,10 @@ def leer_precios_ultimos(limite: int = 100_000, data: str = "") -> dict:
     return precios
 
 def leer_clientes(data: str = "") -> list[dict]:
-    """Clientes de A2 (SClientes): código, nombre y NIT."""
+    """Clientes de A2 (SClientes): código, nombre, NIT y RIF."""
     cur = _cur(data)
-    cur.execute("SELECT FC_CODIGO, FC_DESCRIPCION, FC_NIT FROM SClientes")
+    cur.execute("SELECT FC_CODIGO, FC_DESCRIPCION, FC_NIT, FC_RIF "
+                "FROM SClientes")
     clientes = []
     while True:
         fila = cur.fetchone()
@@ -121,6 +122,7 @@ def leer_clientes(data: str = "") -> list[dict]:
             "codigo": codigo,
             "nombre": str(fila[1] or "").strip() or codigo,
             "nit": str(fila[2] or "").strip(),
+            "rif": str(fila[3] or "").strip(),
         })
     return clientes
 

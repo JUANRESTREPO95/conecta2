@@ -167,6 +167,11 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE empresas ADD COLUMN formato_numero TEXT",
         "ALTER TABLE empresas ADD COLUMN reinicio_numero TEXT",
         "ALTER TABLE empresas ADD COLUMN digitos_numero INTEGER DEFAULT 4",
+        "ALTER TABLE clientes ADD COLUMN rif TEXT",
+        "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_codigo TEXT",
+        "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_nombre TEXT",
+        "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_nit TEXT",
+        "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_rif TEXT",
     ):
         try:
             con.execute(alter)

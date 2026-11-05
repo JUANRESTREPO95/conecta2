@@ -32,7 +32,8 @@
 <div class="caja">
   <form method="post" action="/pedido/enviar" id="form-enviar">
     {% if empresa and empresa.usar_clientes %}
-    <label>Cliente (si no eliges, va CONSUMIDOR FINAL)
+    <label>Cliente (si no eliges, va
+      {{ empresa.cliente_predeterminado_nombre or 'CONSUMIDOR FINAL' }})
       <input type="text" id="cliente-buscar" placeholder="Escribe el nombre o NIT…" autocomplete="off">
       <input type="hidden" name="cliente_codigo" id="cliente-codigo" value="">
       <input type="hidden" name="cliente_nombre" id="cliente-nombre" value="">
@@ -104,10 +105,11 @@
         if (!items.length) {
           if (/^[0-9]{4,}$/.test(q)) {
             caja.innerHTML = '<p class="error">NIT ' + esc(q) +
-              ' no está en los clientes de A2. Si no lo eliges, el pedido va como ' +
-              'CONSUMIDOR FINAL; escribe los datos del cliente en la Referencia.</p>';
+              ' no está en los clientes de A2. Si no lo eliges, el pedido va con ' +
+              'el cliente predeterminado del negocio.</p>';
           } else {
-            caja.innerHTML = '<p class="sub">Sin coincidencias — si no eliges, va CONSUMIDOR FINAL.</p>';
+            caja.innerHTML = '<p class="sub">Sin coincidencias — si no eliges, ' +
+              'va el cliente predeterminado del negocio.</p>';
           }
           return;
         }

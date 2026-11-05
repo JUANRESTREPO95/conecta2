@@ -174,6 +174,11 @@ a .btn-neutro, a button.btn-neutro { text-decoration: none; }
   cursor: pointer; font: inherit; }
 .cliente-opcion:hover { background: color-mix(in srgb, var(--primario) 8%, #fff); }
 .cliente-opcion span { font-size: .85rem; }
+.caja-cliente-defecto { border-left: 4px solid var(--primario, #1e40af);
+  background: color-mix(in srgb, var(--primario) 5%, #fff);
+  padding: 10px 12px; margin: 4px 0 12px; border-radius: 8px; }
+.caja-cliente-defecto label { margin-top: 0; }
+.caja-cliente-defecto .mini { font-size: .72rem; padding: 2px 8px; margin-left: 6px; }
 
 textarea { width: 100%; height: 96px; min-height: 96px; max-height: 96px;
   resize: none; overflow-y: auto; }
