@@ -576,6 +576,9 @@ def api_pendientes(request: Request):
         pedido["cliente_nombre"] = (p["cliente_nombre"] or "").strip() or \
             def_nombre
         pedido["cliente_nit"] = (p["cliente_nit"] or "").strip() or def_nit
+        pedido["cliente_codigo"] = (p["cliente_codigo"] or "").strip() or \
+            ((predeterminado["cliente_predeterminado_codigo"]
+              if predeterminado else "") or "").strip()
         rif = def_rif
         if p["cliente_codigo"]:
             fila_cli = db.fila(
