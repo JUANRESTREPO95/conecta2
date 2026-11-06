@@ -77,17 +77,22 @@ def fija_empresa_activa(usuario, empresa_id: int) -> None:
                     (empresa_id, usuario["token"]))
 
 
+def resumen_carrito(carrito: list) -> dict:
+    """Unidades, monto e ítems de un carrito (para el indicador flotante)."""
+    monto = sum(i["cantidad"] * (i["precio"] or 0) for i in carrito)
+    return {"carrito_n": sum(int(i["cantidad"]) for i in carrito),
+            "carrito_monto": monto, "carrito_items": len(carrito)}
+
+
 def datos_carrito(usuario) -> dict:
-    """Artículos y monto del carrito de la sesión (para el indicador flotante)."""
+    """Artículos y monto del carrito del usuario (para el indicador flotante)."""
     if usuario is None or not usuario["carrito"]:
         return {"carrito_n": 0, "carrito_monto": 0.0, "carrito_items": 0}
     try:
         carrito = json.loads(usuario["carrito"] or "[]")
     except Exception:
         carrito = []
-    monto = sum(i["cantidad"] * (i["precio"] or 0) for i in carrito)
-    return {"carrito_n": sum(int(i["cantidad"]) for i in carrito),
-            "carrito_monto": monto, "carrito_items": len(carrito)}
+    return resumen_carrito(carrito)
 
 
 def respuesta(request: Request, plantilla: str, contexto: dict):
@@ -1173,11 +1178,8 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
                         "precio": producto["precio"], "cantidad": cantidad})
     carrito_guardar(usuario, carrito)
     if request.headers.get("x-requested-with") == "fetch":
-        # releer para devolver el acumulado fresco (la fila estaba en memoria)
-        ses_fresca = db.fila("SELECT carrito FROM sesiones WHERE token = ?",
-                             (usuario["token"],))
-        d = datos_carrito(ses_fresca)
-        return {"ok": True, **d}
+        # el acumulado se calcula con el carrito recién guardado
+        return {"ok": True, **resumen_carrito(carrito)}
     return RedirectResponse("/pedido", status_code=303)
 
 
