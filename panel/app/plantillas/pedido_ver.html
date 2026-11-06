@@ -20,21 +20,22 @@
   </tbody>
 </table>
 <p class="derecha"><strong>Total sin IVA: {{ pedido.total | num }}</strong></p>
-<p class="acciones">
+<div class="acciones">
   {% if usuario.rol in ('admin', 'super') %}
-  <form method="post" action="/pedidos/{{ pedido.id }}/borrar" class="inline"
-        style="margin:0; display:inline"
+  <form method="post" action="/pedidos/{{ pedido.id }}/borrar"
         onsubmit="return confirm('¿Borrar el pedido {{ pedido.numero }}? Esto no toca A2.')">
     <button type="submit" class="rojo">Borrar pedido</button>
   </form>
   {% endif %}
-  <form method="post" action="/pedidos/{{ pedido.id }}/reenviar" class="inline" style="margin:0">
+  <form method="post" action="/pedidos/{{ pedido.id }}/reenviar">
     <button type="submit" title="Cargar este pedido en el carrito para enviarlo de nuevo">Reenviar</button>
   </form>
-  <a href="/pedidos/{{ pedido.id }}/hoja.pdf" target="_blank"><button type="button" class="btn-neutro">Hoja PDF</button></a>
-  <a href="/pedidos/{{ pedido.id }}/hoja.jpg" download="pedido-{{ pedido.numero }}.jpg"><button type="button" class="btn-neutro">Hoja JPG</button></a>
-  <button type="button" class="btn-neutro" id="compartir-wa">Compartir por WhatsApp</button>
-</p>
+  <a class="boton" href="/pedidos/{{ pedido.id }}/hoja.pdf"
+     target="_blank" rel="noopener">Hoja PDF</a>
+  <a class="boton" href="/pedidos/{{ pedido.id }}/hoja.jpg"
+     download="pedido-{{ pedido.numero }}.jpg">Hoja JPG</a>
+  <button type="button" id="compartir-wa">Compartir por WhatsApp</button>
+</div>
 <p><a href="/pedidos">« Volver</a></p>
 <script>
 (function () {
@@ -43,31 +44,32 @@
   var boton = document.getElementById('compartir-wa');
   boton.addEventListener('click', function () {
     boton.disabled = true;
-    boton.textContent = 'Preparando la imagen…';
-    fetch('/pedidos/{{ pedido.id }}/hoja.jpg')
+    boton.textContent = 'Preparando el PDF…';
+    // se comparte el PDF como archivo (no un enlace)
+    fetch('/pedidos/{{ pedido.id }}/hoja.pdf')
       .then(function (r) { return r.blob(); })
       .then(function (blob) {
-        var archivo = new File([blob], 'pedido-' + numero + '.jpg',
-                                { type: 'image/jpeg' });
+        var archivo = new File([blob], 'pedido-' + numero + '.pdf',
+                                { type: 'application/pdf' });
         if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
-          // abre la hoja de compartir con la imagen adjunta (elige WhatsApp)
+          // abre la hoja de compartir con el PDF adjunto (elige WhatsApp)
           return navigator.share({
             files: [archivo],
             title: 'Pedido ' + numero,
             text: 'Pedido ' + numero + ' — ' + total + ' sin IVA'
           });
         }
-        // navegador sin compartir archivos: descarga la imagen para adjuntarla
+        // navegador sin compartir archivos: descarga el PDF para adjuntarlo
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'pedido-' + numero + '.jpg';
+        a.download = 'pedido-' + numero + '.pdf';
         a.click();
         alert('Este navegador no permite compartir el archivo directamente. ' +
-              'Se descargó la imagen: adjúntala en WhatsApp.');
+              'Se descargó el PDF: adjúntalo en WhatsApp.');
       })
       .catch(function (e) {
         if (e && e.name !== 'AbortError') {
-          alert('No se pudo preparar la imagen: ' + e.message);
+          alert('No se pudo preparar el PDF: ' + e.message);
         }
       })
       .finally(function () {

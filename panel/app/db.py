@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS productos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     empresa_id INTEGER NOT NULL REFERENCES empresas(id),
     codigo TEXT NOT NULL,                -- código sin espacios (recortado, en mayúscula)
+    codigo_busqueda TEXT,                -- código normalizado para buscar por tramos
     descripcion TEXT,
     marca TEXT,
     categoria TEXT,
@@ -115,6 +116,16 @@ CREATE TABLE IF NOT EXISTS clientes (
     UNIQUE (empresa_id, codigo)
 );
 
+-- Carrito del pedido en curso, por usuario y empresa: no depende de la
+-- sesión, así que sobrevive a cerrar la página o volver a iniciar sesión
+CREATE TABLE IF NOT EXISTS carritos (
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+    carrito TEXT,
+    actualizado TEXT DEFAULT (datetime('now', 'localtime')),
+    PRIMARY KEY (usuario_id, empresa_id)
+);
+
 -- Vendedores de A2 (los sube el agente; el panel los importa de aquí)
 CREATE TABLE IF NOT EXISTS vendedores_a2 (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,6 +191,7 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_nombre TEXT",
         "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_nit TEXT",
         "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_rif TEXT",
+        "ALTER TABLE productos ADD COLUMN codigo_busqueda TEXT",
     ):
         try:
             con.execute(alter)
@@ -193,6 +205,10 @@ def esquema() -> None:  # crea tablas si faltan
     con.execute("UPDATE empresas SET filtro_existencia = "
                 "CASE WHEN ocultar_agotados = 1 THEN 'positivo' ELSE 'todo' END "
                 "WHERE filtro_existencia IS NULL")
+    # rellena una sola vez el código normalizado (búsqueda por tramos)
+    if con.execute("SELECT COUNT(*) FROM productos WHERE codigo_busqueda IS NULL"
+                   ).fetchone()[0]:
+        con.execute("UPDATE productos SET codigo_busqueda = UPPER(TRIM(codigo))")
     con.commit()
 
 

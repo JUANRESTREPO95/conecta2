@@ -61,11 +61,18 @@ def crear_sesion(usuario_id: int) -> str:
 def usuario_de_sesion(token: str):
     if not token:
         return None
-    fila = db.fila("SELECT u.*, s.token AS token, s.carrito AS carrito, "
-                   "COALESCE(s.empresa_activa, u.empresa_id) AS empresa_actual "
-                   "FROM usuarios u JOIN sesiones s ON s.usuario_id = u.id "
-                   "WHERE s.token = ? AND s.expira > datetime('now', 'localtime') "
-                   "AND u.activo = 1", (token,))
+    # el carrito vive por usuario y empresa (tabla carritos), no en la sesión:
+    # se recupera aunque la sesión anterior haya expirado. El de la sesión se
+    # deja como respaldo para carritos viejos que aún no se migraron.
+    fila = db.fila(
+        "SELECT u.*, s.token AS token, "
+        "COALESCE(s.empresa_activa, u.empresa_id) AS empresa_actual, "
+        "COALESCE((SELECT c.carrito FROM carritos c WHERE c.usuario_id = u.id "
+        "          AND c.empresa_id = COALESCE(s.empresa_activa, u.empresa_id)), "
+        "         s.carrito) AS carrito "
+        "FROM usuarios u JOIN sesiones s ON s.usuario_id = u.id "
+        "WHERE s.token = ? AND s.expira > datetime('now', 'localtime') "
+        "AND u.activo = 1", (token,))
     return fila
 
 

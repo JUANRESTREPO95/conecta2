@@ -126,9 +126,20 @@ textarea { font: inherit; }
   font-size: 1rem; box-shadow: 0 6px 18px rgba(15, 23, 42, .35);
   text-decoration: none; z-index: 50; transition: transform .15s; }
 .carrito:hover { transform: scale(1.04); background: var(--secundario); }
-.btn-neutro.acciones a { text-decoration: none; }
-.acciones { display: flex; gap: .5rem; flex-wrap: wrap; }
-a .btn-neutro, a button.btn-neutro { text-decoration: none; }
+/* ---- acciones del pedido: fila pareja, con envoltura en móvil ---- */
+.acciones { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center;
+  margin: 1rem 0; }
+.acciones form { margin: 0; display: flex; }
+.acciones button, .acciones .boton {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 42px; padding: 0 1.1rem; font-family: "Rubik", sans-serif;
+  font-weight: 600; font-size: .95rem; border-radius: 10px; cursor: pointer;
+  border: 2px solid var(--primario); background: var(--primario); color: #fff;
+  text-decoration: none; white-space: nowrap; margin: 0; }
+.acciones button:hover, .acciones .boton:hover {
+  background: var(--oscuro); border-color: var(--oscuro); color: #fff; }
+.acciones button.rojo { background: var(--rojo); border-color: var(--rojo); }
+.acciones button.rojo:hover { background: #b91c1c; border-color: #b91c1c; }
 
 /* ---- login ---- */
 #login-caja { max-width: 420px; margin: 3rem auto; background: #fff;

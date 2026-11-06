@@ -246,11 +246,14 @@ def api_saludo(request: Request):
 
 
 _SQL_PRODUCTO = (
-    "INSERT INTO productos (empresa_id, codigo, codigo_a2, descripcion, marca, "
+    "INSERT INTO productos (empresa_id, codigo, codigo_a2, codigo_busqueda, "
+    "descripcion, marca, "
     "categoria, unidad, moneda, activo, internet, actualizado) "
-    "VALUES (:e, :codigo, :codigo_a2, :descripcion, :marca, :categoria, "
+    "VALUES (:e, :codigo, :codigo_a2, :codigo_busqueda, :descripcion, :marca, "
+    ":categoria, "
     ":unidad, :moneda, :activo, :internet, datetime('now','localtime')) "
     "ON CONFLICT(empresa_id, codigo) DO UPDATE SET codigo_a2=excluded.codigo_a2, "
+    "codigo_busqueda=excluded.codigo_busqueda, "
     "descripcion=excluded.descripcion, marca=excluded.marca, "
     "categoria=excluded.categoria, unidad=excluded.unidad, moneda=excluded.moneda, "
     "activo=excluded.activo, internet=excluded.internet, "
@@ -286,6 +289,7 @@ def _guarda_productos(empresa_id: int, lote: list) -> int:
             con.execute(_SQL_PRODUCTO, {
                 "e": empresa_id, "codigo": codigo,
                 "codigo_a2": str(p.get("codigo_a2") or p.get("codigo") or ""),
+                "codigo_busqueda": codigo.strip().upper(),
                 "descripcion": p.get("descripcion"), "marca": p.get("marca"),
                 "categoria": p.get("categoria"), "unidad": p.get("unidad"),
                 "moneda": p.get("moneda") or 1,
@@ -990,16 +994,50 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
 
 # ---------- catálogo ----------
 
+def _normaliza_busqueda(texto: str) -> str:
+    """Texto de búsqueda en mayúsculas y sin espacios en los extremos."""
+    return str(texto or "").strip().upper()
+
+
+def _like(texto: str) -> str:
+    """Escapa los comodines de LIKE para que lo escrito se busque literal."""
+    return (str(texto).replace("\\", "\\\\").replace("%", "\\%")
+            .replace("_", "\\_"))
+
+
+def _patrones_codigo(qn: str) -> list:
+    """Patrones de código: al comienzo y al comienzo de cada tramo."""
+    q = _like(qn)
+    return [f"{q}%", f"%-{q}%", f"%.{q}%", f"% {q}%", f"%/{q}%"]
+
+
 def condicion_catalogo(empresa, q: str):
-    """Condiciones SQL comunes del catálogo (internet + activo + búsqueda)."""
-    patron_p = f"{q.strip().upper()}%"       # código: por el comienzo
-    patron_d = f"%{q.strip().upper()}%"      # descripción/marca: contiene
+    """Condiciones SQL comunes del catálogo (internet + activo + búsqueda).
+
+    Devuelve (condición, valores, orden, valores_del_orden). El orden deja
+    primero el código exacto, luego el que empieza por lo escrito, luego el
+    que lo tiene al comienzo de un tramo (58320 → GG-58320) y al final los que
+    solo coinciden por la descripción.
+    """
     condicion = "p.empresa_id = ? AND p.internet = 1 AND p.activo = 1"
     valores: list = [empresa["id"]]
-    if q.strip():
-        condicion += (" AND (UPPER(TRIM(p.codigo)) LIKE ? "
-                      "OR UPPER(p.descripcion) LIKE ?)")
-        valores += [patron_p, patron_d]
+    orden, orden_valores = "p.descripcion", []
+    qn = _normaliza_busqueda(q)
+    if qn:
+        patrones = _patrones_codigo(qn)
+        marcas = " OR ".join(["p.codigo_busqueda LIKE ? ESCAPE '\\'"] * len(patrones))
+        condicion += (f" AND ({marcas} OR "
+                      "UPPER(p.descripcion) LIKE ? ESCAPE '\\')")
+        valores += patrones + [f"%{_like(qn)}%"]
+        # el orden usa los mismos patrones (el primero es el "empieza por")
+        orden = ("CASE WHEN p.codigo_busqueda = ? THEN 0 "
+                 "WHEN p.codigo_busqueda LIKE ? ESCAPE '\\' THEN 1 "
+                 "WHEN p.codigo_busqueda LIKE ? ESCAPE '\\' "
+                 "OR p.codigo_busqueda LIKE ? ESCAPE '\\' "
+                 "OR p.codigo_busqueda LIKE ? ESCAPE '\\' "
+                 "OR p.codigo_busqueda LIKE ? ESCAPE '\\' THEN 2 "
+                 "ELSE 3 END")
+        orden_valores = [qn] + patrones
     # existencia según el modo de depósito de la empresa
     dep1 = ("(SELECT s.existencia FROM stock s WHERE s.empresa_id = p.empresa_id "
             "AND s.codigo_producto = p.codigo AND s.deposito = 1)")
@@ -1019,10 +1057,12 @@ def condicion_catalogo(empresa, q: str):
         minimo = int(empresa["existencia_minima"] or 0)
         condicion += f" AND {visible} >= ?"
         valores.append(minimo)
-    return condicion, valores
+    return condicion, valores, orden, orden_valores
 
 
-def productos_de(empresa, condicion: str, valores: list, limite: int, desplaz: int = 0):
+def productos_de(empresa, condicion: str, valores: list, limite: int,
+                 desplaz: int = 0, orden: str = "p.descripcion",
+                 orden_valores: list | tuple = ()):
     filas_p = db.filas(
         f"SELECT p.codigo, p.descripcion, p.marca, p.precio, "
         f"(SELECT s.existencia FROM stock s WHERE s.empresa_id = p.empresa_id "
@@ -1030,8 +1070,8 @@ def productos_de(empresa, condicion: str, valores: list, limite: int, desplaz: i
         f"(SELECT s.existencia FROM stock s WHERE s.empresa_id = p.empresa_id "
         f"  AND s.codigo_producto = p.codigo AND s.deposito = 2) AS dep2 "
         f"FROM productos p WHERE {condicion} "
-        f"ORDER BY p.descripcion LIMIT ? OFFSET ?",
-        tuple(valores) + (limite, desplaz))
+        f"ORDER BY {orden}, p.descripcion LIMIT ? OFFSET ?",
+        tuple(valores) + tuple(orden_valores) + (limite, desplaz))
 
     def existencia_que_ve(r):
         if empresa["deposito_modo"] == "1":
@@ -1055,10 +1095,10 @@ def catalogo(request: Request, q: str = "", pagina: int = 1):
     if empresa is None:
         return respuesta(request, "catalogo.html", {"sin_empresa": True, "q": q})
     por_pagina = 100
-    condicion, valores = condicion_catalogo(empresa, q)
+    condicion, valores, orden, orden_valores = condicion_catalogo(empresa, q)
     total = db.fila(f"SELECT COUNT(*) AS c FROM productos p WHERE {condicion}", tuple(valores))["c"]
-    items = productos_de(empresa, condicion, valores,
-                         por_pagina, max(0, pagina - 1) * por_pagina)
+    items = productos_de(empresa, condicion, valores, por_pagina,
+                         max(0, pagina - 1) * por_pagina, orden, orden_valores)
     return respuesta(request, "catalogo.html", {
         "empresa": empresa, "items": items, "q": q, "total": total,
         "pagina": pagina, "paginas": (total + por_pagina - 1) // por_pagina or 1})
@@ -1074,9 +1114,9 @@ def catalogo_buscar(request: Request, q: str = "", limite: int = 100):
                           int(request.query_params["empresa"]))
     if empresa is None:
         return {"items": [], "total": 0}
-    condicion, valores = condicion_catalogo(empresa, q)
+    condicion, valores, orden, orden_valores = condicion_catalogo(empresa, q)
     total = db.fila(f"SELECT COUNT(*) AS c FROM productos p WHERE {condicion}", tuple(valores))["c"]
-    items = productos_de(empresa, condicion, valores, limite)
+    items = productos_de(empresa, condicion, valores, limite, 0, orden, orden_valores)
     return {"total": total, "items": items}
 
 
@@ -1092,8 +1132,21 @@ def carrito_obtener(usuario) -> list:
 
 
 def carrito_guardar(usuario, carrito: list) -> None:
-    db.ejecutar("UPDATE sesiones SET carrito = ? WHERE token = ?",
-                (json.dumps(carrito, ensure_ascii=False), usuario["token"]))
+    """Guarda el carrito por usuario y empresa (no por sesión).
+
+    Así el pedido en curso no se pierde al cerrar la página: al volver a
+    entrar, con la sesión que sea, aparece lo que había agregado.
+    """
+    db.ejecutar(
+        "INSERT INTO carritos (usuario_id, empresa_id, carrito, actualizado) "
+        "VALUES (?, ?, ?, datetime('now','localtime')) "
+        "ON CONFLICT(usuario_id, empresa_id) DO UPDATE SET "
+        "carrito = excluded.carrito, actualizado = excluded.actualizado",
+        (usuario["id"], usuario["empresa_actual"],
+         json.dumps(carrito, ensure_ascii=False)))
+    # deja limpia la copia vieja que vivía en la sesión
+    db.ejecutar("UPDATE sesiones SET carrito = NULL WHERE token = ?",
+                (usuario["token"],))
 
 
 @app.post("/pedido/agregar")
