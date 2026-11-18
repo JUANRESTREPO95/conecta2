@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS pedidos (
     referencia TEXT,
     estado TEXT NOT NULL DEFAULT 'pendiente',  -- pendiente | montado | error
     total REAL NOT NULL DEFAULT 0,       -- sin IVA
-    error_a2 TEXT,                       -- mensaje si el inserto en A2 falla
+    error_a2 TEXT,                       -- último error al montar (no cambia el estado)
+    intentos INTEGER NOT NULL DEFAULT 0, -- intentos fallidos de montaje
     a2_autoincrement INTEGER,            -- FTI_AUTOINCREMENT que quedó en A2
     creado TEXT DEFAULT (datetime('now', 'localtime')),
     montado TEXT,
@@ -214,6 +215,7 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE pedidos ADD COLUMN autorizado_codigo TEXT",
         "ALTER TABLE pedidos ADD COLUMN autorizado_nombre TEXT",
         "ALTER TABLE pedidos ADD COLUMN autorizado_direccion TEXT",
+        "ALTER TABLE pedidos ADD COLUMN intentos INTEGER NOT NULL DEFAULT 0",
     ):
         try:
             con.execute(alter)

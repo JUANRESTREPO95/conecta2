@@ -698,6 +698,24 @@ def api_error(request: Request, id: int, mensaje: str):
     return {"ok": True}
 
 
+@app.post("/api/pedidos/reintento")
+def api_reintento(request: Request, id: int, mensaje: str = ""):
+    """El agente no pudo montar el pedido: se queda PENDIENTE y se reintenta.
+
+    Solo se guarda el último error y se cuenta el intento; el estado no cambia.
+    """
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return Response('{"error": "token inválido"}', status_code=401,
+                        media_type="application/json")
+    db.ejecutar(
+        "UPDATE pedidos SET error_a2 = ?, "
+        "intentos = COALESCE(intentos, 0) + 1, montado = NULL "
+        "WHERE id = ? AND estado = 'pendiente'",
+        (mensaje[:500], id))
+    return {"ok": True}
+
+
 @app.post("/login")
 def login_post(request: Request, codigo: str = Form(...), clave: str = Form(...)):
     seg = db.fila("SELECT id, clave_hash, rol, activo FROM usuarios "
@@ -1490,7 +1508,7 @@ def pedidos_estados(request: Request, pagina: int = 1, estado: str = ""):
         condicion += " AND p.estado = ?"
         valores.append(estado)
     filas_estado = db.filas(
-        f"SELECT p.id, p.estado, p.montado, p.error_a2 FROM pedidos p "
+        f"SELECT p.id, p.estado, p.montado, p.error_a2, p.intentos FROM pedidos p "
         f"WHERE {condicion} ORDER BY p.id DESC LIMIT ? OFFSET ?",
         tuple(valores) + (por_pagina, max(0, pagina - 1) * por_pagina))
     return {"items": [dict(f) for f in filas_estado]}
@@ -1545,7 +1563,7 @@ def pedido_estado(request: Request, pedido_id: int):
         return {"ok": False}
     condicion, extra = _acceso_pedido(usuario)
     fila_estado = db.fila(
-        f"SELECT p.id, p.estado, p.montado, p.error_a2 FROM pedidos p "
+        f"SELECT p.id, p.estado, p.montado, p.error_a2, p.intentos FROM pedidos p "
         f"WHERE p.id = ? {condicion}", (pedido_id,) + extra)
     return {"ok": True, **dict(fila_estado)} if fila_estado else {"ok": False}
 
@@ -1611,6 +1629,24 @@ def pedidos_reenviar(request: Request, pedido_id: int):
         })
     carrito_guardar(usuario, carrito)
     return RedirectResponse("/pedido", status_code=303)
+
+
+@app.post("/pedidos/{pedido_id}/reintentar")
+def pedidos_reintentar(request: Request, pedido_id: int):
+    """Vuelve a poner en cola un pedido que quedó en error (no toca A2)."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    condicion, extra = _acceso_pedido(usuario)
+    existe = db.fila(f"SELECT p.id FROM pedidos p WHERE p.id = ? {condicion}",
+                     (pedido_id,) + extra)
+    if existe is None:
+        return RedirectResponse("/pedidos", status_code=303)
+    db.ejecutar(
+        "UPDATE pedidos SET estado = 'pendiente', error_a2 = NULL, "
+        "intentos = 0, montado = NULL, a2_autoincrement = NULL "
+        "WHERE id = ? AND estado = 'error'", (pedido_id,))
+    return RedirectResponse(f"/pedidos/{pedido_id}", status_code=303)
 
 
 @app.get("/pedidos/{pedido_id}")

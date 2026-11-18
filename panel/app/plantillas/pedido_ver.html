@@ -5,7 +5,8 @@
 <p class="sub">
   {{ pedido.creado }} · {{ pedido.vend_nombre }} ({{ pedido.vend_codigo }}) ·
   estado <span class="pill pill-{{ pedido.estado }}" id="pill-estado">{{ pedido.estado }}</span>
-  {% if pedido.estado == 'error' %}<span class="error">{{ pedido.error_a2 }}</span>{% endif %}
+  {% if pedido.estado == 'error' %}<span class="error">{{ pedido.error_a2 }}</span>
+  {% elif pedido.estado == 'pendiente' and pedido.error_a2 %}<span class="error">Reintentando ({{ pedido.intentos or 0 }} intento(s)): {{ pedido.error_a2 }}</span>{% endif %}
   {% if pedido.montado %}· montado {{ pedido.montado }}{% endif %}
 </p>
 {% if pedido.cliente_nombre or pedido.cliente_nit %}<p><strong>Cliente:</strong>
@@ -27,6 +28,11 @@
   <form method="post" action="/pedidos/{{ pedido.id }}/borrar"
         onsubmit="return confirm('¿Borrar el pedido {{ pedido.numero }}? Esto no toca A2.')">
     <button type="submit" class="rojo">Borrar pedido</button>
+  </form>
+  {% endif %}
+  {% if pedido.estado == 'error' %}
+  <form method="post" action="/pedidos/{{ pedido.id }}/reintentar">
+    <button type="submit" title="Volver a intentar montar este mismo pedido en A2">Reintentar</button>
   </form>
   {% endif %}
   <form method="post" action="/pedidos/{{ pedido.id }}/reenviar">
