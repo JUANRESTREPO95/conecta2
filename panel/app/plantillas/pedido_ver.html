@@ -10,6 +10,8 @@
 </p>
 {% if pedido.cliente_nombre or pedido.cliente_nit %}<p><strong>Cliente:</strong>
   {{ pedido.cliente_nombre or "CONSUMIDOR FINAL" }}{% if pedido.cliente_nit %} — NIT {{ pedido.cliente_nit }}{% endif %}</p>{% endif %}
+{% if pedido.autorizado_nombre or pedido.autorizado_direccion %}<p><strong>Autorizado:</strong>
+  {{ pedido.autorizado_nombre or "—" }}{% if pedido.autorizado_direccion %} — {{ pedido.autorizado_direccion }}{% endif %}</p>{% endif %}
 {% if pedido.referencia %}<p><strong>Referencia:</strong> {{ pedido.referencia }}</p>{% endif %}
 <table>
   <thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Precio</th></tr></thead>

@@ -2,6 +2,7 @@
 {% block contenido %}
 <h1>Mi pedido</h1>
 {% if request.query_params.get('vacio') %}<p class="error">El carrito está vacío.</p>{% endif %}
+{% if request.query_params.get('falta_cliente') %}<p class="error">Elige el cliente antes de enviar el pedido.</p>{% endif %}
 {% if carrito %}
 <table>
   <thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>
@@ -41,6 +42,14 @@
     </label>
     <div id="cliente-resultados" class="cliente-resultados"></div>
     <p class="sub" id="cliente-elegido" style="display:none"></p>
+    {% if empresa.usar_autorizados %}
+    <label>Autorizado (opcional)
+      <select name="autorizado_codigo" id="autorizado-codigo" disabled>
+        <option value="">— Sin autorizado —</option>
+      </select>
+    </label>
+    <p class="sub" id="autorizado-aviso" style="display:none"></p>
+    {% endif %}
     {% endif %}
     <label>Referencia (Notas / Datos del cliente)
       <textarea name="referencia" rows="3" id="ref"></textarea>
@@ -62,7 +71,45 @@
   var hCodigo = document.getElementById('cliente-codigo');
   var hNombre = document.getElementById('cliente-nombre');
   var hNit = document.getElementById('cliente-nit');
+  var aut = document.getElementById('autorizado-codigo');
+  var autAviso = document.getElementById('autorizado-aviso');
   var temporizador = null;
+
+  function limpiarAutorizados() {
+    if (!aut) return;
+    aut.innerHTML = '<option value="">— Sin autorizado —</option>';
+    aut.disabled = true;
+    aut.value = '';
+    if (autAviso) { autAviso.style.display = 'none'; autAviso.textContent = ''; }
+  }
+  function cargarAutorizados(codigoCliente) {
+    if (!aut) return;
+    limpiarAutorizados();
+    if (!codigoCliente) return;
+    fetch('/autorizados/cliente?codigo=' + encodeURIComponent(codigoCliente))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var items = d.items || [];
+        aut.innerHTML = '<option value="">— Sin autorizado —</option>';
+        items.forEach(function (a) {
+          var op = document.createElement('option');
+          op.value = a.codigo;
+          op.textContent = (a.nombre || a.codigo) +
+            (a.direccion ? ' — ' + a.direccion : '');
+          aut.appendChild(op);
+        });
+        aut.disabled = false;
+        if (autAviso) {
+          if (!items.length) {
+            autAviso.style.display = '';
+            autAviso.textContent = 'Este cliente no tiene autorizados en A2.';
+          } else {
+            autAviso.style.display = 'none';
+          }
+        }
+      })
+      .catch(function () { aut.disabled = false; });
+  }
 
   function esc(v) {
     return String(v || '').replace(/[&<>"]/g, function (c) {
@@ -78,6 +125,7 @@
     elegido.textContent = 'Cliente elegido: ' + (c.nombre || c.codigo) +
       (c.nit ? ' — NIT ' + c.nit : '');
     caja.innerHTML = '';   // al elegir, se ocultan las demás opciones
+    cargarAutorizados(c.codigo || '');
   }
   function buscar() {
     var q = entrada.value.trim();
@@ -125,9 +173,22 @@
   entrada.addEventListener('input', function () {
     hCodigo.value = hNombre.value = hNit.value = '';
     elegido.style.display = 'none';
+    limpiarAutorizados();
     clearTimeout(temporizador);
     temporizador = setTimeout(buscar, 200);
   });
+
+  // el cliente es obligatorio cuando está activado en Configuración
+  var form = document.getElementById('form-enviar');
+  if (form) {
+    form.addEventListener('submit', function (ev) {
+      if (!hCodigo.value) {
+        ev.preventDefault();
+        alert('Elige el cliente antes de enviar el pedido.');
+        entrada.focus();
+      }
+    });
+  }
 
 })();
 </script>

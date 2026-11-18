@@ -32,6 +32,15 @@ def _cliente_texto(pedido: dict) -> str:
     return f"{nombre} - NIT {nit}" if nit else nombre
 
 
+def _autorizado_texto(pedido: dict) -> str:
+    """Nombre y dirección del autorizado (solo para la hoja; no va a A2)."""
+    nombre = (pedido.get("autorizado_nombre") or "").strip()
+    direccion = (pedido.get("autorizado_direccion") or "").strip()
+    if nombre and direccion:
+        return f"{nombre} - {direccion}"
+    return nombre or direccion
+
+
 def _fecha(creado: str) -> str:
     if not creado:
         return date.today().isoformat()
@@ -134,6 +143,12 @@ def hoja_pdf(pedido_id: int) -> bytes | None:
     if (empresa or {}).get("usar_clientes"):
         cliente_txt = _cliente_texto(pedido)
         filas.append(("CLIENTE", _l1(cliente_txt), 11.0, "", 13))
+    if (empresa or {}).get("usar_autorizados"):
+        aut_txt = _l1(_autorizado_texto(pedido))
+        lineas_aut = (pdf.multi_cell(ancho_texto, 6, aut_txt, split_only=True)
+                      if aut_txt else [])
+        alto_aut = max(13.0, 4 + 6 * len(lineas_aut))
+        filas.append(("AUTORIZADO", aut_txt, alto_aut, "", 11))
     filas += [
         ("REFERENCIA", referencia, alto_ref, "", 12),
         ("MONTO", _l1(_num(pedido["total"])), 13.0, "", 15),
@@ -154,9 +169,11 @@ def hoja_pdf(pedido_id: int) -> bytes | None:
         # valor
         pdf.set_font("helvetica", estilo, tamano)
         pdf.set_text_color(25, 25, 25)
-        if etiqueta == "REFERENCIA":
-            pdf.set_xy(X_VALOR + 2.5, y + 2)
-            pdf.multi_cell(ancho_texto, 6, valor)
+        if etiqueta in ("REFERENCIA", "AUTORIZADO"):
+            if valor:
+                pdf.set_xy(X_VALOR + 2.5, y + 2)
+                pdf.set_font("helvetica", "", 12 if etiqueta == "REFERENCIA" else 11)
+                pdf.multi_cell(ancho_texto, 6, valor)
         else:
             pdf.set_xy(X_VALOR + 2.5, y + alto / 2 - 4)
             pdf.cell(X_FIN - X_VALOR - 4, 8, valor)
@@ -229,6 +246,11 @@ def hoja_jpg(pedido_id: int) -> bytes | None:
         lineas_cli = _trozado(_cliente_texto(pedido), ANCHO_TEXTO, fuente_cli)
         alto_cli = max(56, 22 + 32 * len(lineas_cli))
         filas.append(("CLIENTE", lineas_cli, alto_cli, False, 26))
+    if (empresa or {}).get("usar_autorizados"):
+        lineas_aut = _trozado(_autorizado_texto(pedido), ANCHO_TEXTO,
+                              _fuente(26))
+        alto_aut = max(56, 22 + 32 * len(lineas_aut))
+        filas.append(("AUTORIZADO", lineas_aut, alto_aut, False, 26))
     filas += [
         ("REFERENCIA", lineas_ref, alto_ref, False, 26),
         ("MONTO", _num(pedido["total"]), 64, False, 32),
@@ -263,7 +285,7 @@ def hoja_jpg(pedido_id: int) -> bytes | None:
         d.rectangle((X0, y, X_FIN, y + alto), outline=BORDE, width=2)
         d.line((X_VALOR, y, X_VALOR, y + alto), fill=BORDE, width=2)
         d.text((X0 + 14, y + 12), etiqueta, font=_fuente(18, True), fill=(70, 70, 70))
-        if etiqueta == "CLIENTE":
+        if etiqueta in ("CLIENTE", "AUTORIZADO"):
             fy = y + 14
             f_cli = _fuente(26)
             for linea in valor:

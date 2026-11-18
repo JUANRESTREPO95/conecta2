@@ -3,7 +3,7 @@ AGENTE CONECTA2 - LEAME
 
 Que es:
   El programa que corre en el PC de A2. Sube al panel el catalogo, las
-  existencias, los clientes, los vendedores y los precios; y monta en A2 los
+  existencias, los clientes, los autorizados, los vendedores y los precios; y monta en A2 los
   pedidos hechos en el panel.
 
 Antes de instalar (una sola vez):

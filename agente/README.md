@@ -2,7 +2,7 @@
 
 El agente es el programa que corre en el PC donde está **A2**. Hace dos cosas:
 
-- **Sube** al panel el catálogo, las existencias, los clientes, los vendedores
+- **Sube** al panel el catálogo, las existencias, los clientes, los autorizados, los vendedores
   y los precios de lista.
 - **Baja** los pedidos hechos en el panel y los **monta en A2** como pedidos
   (documento tipo 10), con su cliente y sus líneas.

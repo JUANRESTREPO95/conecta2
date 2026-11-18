@@ -447,6 +447,27 @@ def _guarda_clientes(empresa_id: int, lote: list) -> int:
     return len(lote)
 
 
+def _guarda_autorizados(empresa_id: int, lote: list) -> int:
+    con = db.conectar()
+    with con:
+        for a in lote:
+            codigo = str(a.get("codigo") or "").strip()
+            cliente = str(a.get("cliente_codigo") or "").strip()
+            if not codigo or not cliente:
+                continue
+            con.execute(
+                "INSERT INTO autorizados (empresa_id, codigo, cliente_codigo, "
+                "nombre, direccion, activo, actualizado) VALUES (?, ?, ?, ?, ?, ?, "
+                "datetime('now','localtime')) "
+                "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
+                "cliente_codigo=excluded.cliente_codigo, nombre=excluded.nombre, "
+                "direccion=excluded.direccion, activo=excluded.activo, "
+                "actualizado=excluded.actualizado",
+                (empresa_id, codigo, cliente, a.get("nombre"),
+                 a.get("direccion"), 1 if a.get("activo", True) else 0))
+    return len(lote)
+
+
 def _guarda_vendedores(empresa_id: int, lote: list) -> int:
     con = db.conectar()
     with con:
@@ -478,6 +499,24 @@ async def api_clientes(request: Request):
     lote = await cuerpo_json(request)
     try:
         guardados = await run_in_threadpool(_guarda_clientes,
+                                            usuario["empresa_id"], lote)
+    except Exception as e:
+        return _error_ocupado(e)
+    return {"ok": True, "guardados": guardados}
+
+
+@app.post("/api/autorizados")
+async def api_autorizados(request: Request):
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return Response('{"error": "token inválido"}', status_code=401,
+                        media_type="application/json")
+    if not usuario["empresa_id"]:
+        return Response('{"error": "agente sin empresa"}', status_code=400,
+                        media_type="application/json")
+    lote = await cuerpo_json(request)
+    try:
+        guardados = await run_in_threadpool(_guarda_autorizados,
                                             usuario["empresa_id"], lote)
     except Exception as e:
         return _error_ocupado(e)
@@ -520,6 +559,26 @@ def clientes_buscar(request: Request, q: str = "", limite: int = 15):
     return {"items": [dict(f) for f in filas_cli]}
 
 
+@app.get("/autorizados/cliente")
+def autorizados_cliente(request: Request, codigo: str = ""):
+    """Autorizados (direcciones) del cliente elegido en el pedido."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return {"items": []}
+    empresa = empresa_del(usuario, None)
+    if empresa is None or not empresa["usar_clientes"] \
+            or not empresa["usar_autorizados"]:
+        return {"items": []}
+    codigo = codigo.strip()
+    if not codigo:
+        return {"items": []}
+    filas_aut = db.filas(
+        "SELECT codigo, nombre, direccion FROM autorizados "
+        "WHERE empresa_id = ? AND cliente_codigo = ? "
+        "ORDER BY nombre, codigo", (empresa["id"], codigo))
+    return {"items": [dict(f) for f in filas_aut]}
+
+
 @app.post("/clientes/refrescar")
 def clientes_refrescar(request: Request):
     """Pide al agente que vuelva a leer los clientes de A2 ya mismo."""
@@ -546,6 +605,22 @@ def api_sync_clientes(request: Request):
     if pedido:
         db.ejecutar("UPDATE empresas SET sync_clientes_pedido = 0 WHERE id = ?",
                     (usuario["empresa_id"],))
+    return {"pedido": pedido}
+
+
+@app.get("/api/sync/autorizados")
+def api_sync_autorizados(request: Request):
+    """El agente pregunta si hay que refrescar los autorizados (y se limpia)."""
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return {"pedido": False}
+    empresa = db.fila(
+        "SELECT sync_autorizados_pedido FROM empresas WHERE id = ?",
+        (usuario["empresa_id"],))
+    pedido = bool(empresa and empresa["sync_autorizados_pedido"])
+    if pedido:
+        db.ejecutar("UPDATE empresas SET sync_autorizados_pedido = 0 "
+                    "WHERE id = ?", (usuario["empresa_id"],))
     return {"pedido": pedido}
 
 
@@ -940,6 +1015,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        filtro: str = Form("todo"),
                        minimo: int = Form(0),
                        usar_clientes: str = Form(""),
+                       usar_autorizados: str = Form(""),
                        cliente_predeterminado: str = Form(""),
                        formato_numero: str = Form("{vendedor}-{anio}{numero}"),
                        reinicio_numero: str = Form("anual"),
@@ -965,6 +1041,9 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     if reinicio_numero not in ("anual", "mensual", "diario"):
         reinicio_numero = "anual"
     digitos_numero = max(1, min(6, digitos_numero or 4))
+    # los autorizados dependen de los clientes: sin clientes no hay autorizados
+    usar_clientes_on = 1 if usar_clientes else 0
+    usar_autorizados_on = 1 if (usar_clientes_on and usar_autorizados) else 0
     # cliente predeterminado: se guarda el nombre/NIT/RIF del código elegido
     codigo_def = cliente_predeterminado.strip()
     nombre_def = nit_def = rif_def = None
@@ -982,6 +1061,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "ocultar_agotados = ?, color_primario = ?, color_secundario = ?, "
                 "color_letra = ?, logo = ?, filtro_existencia = ?, "
                 "existencia_minima = ?, usar_clientes = ?, "
+                "usar_autorizados = ?, "
                 "cliente_predeterminado_codigo = ?, "
                 "cliente_predeterminado_nombre = ?, "
                 "cliente_predeterminado_nit = ?, "
@@ -989,7 +1069,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "reinicio_numero = ?, digitos_numero = ? WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_primario, color_letra, logo,
-                 filtro, max(0, minimo), 1 if usar_clientes else 0,
+                 filtro, max(0, minimo), usar_clientes_on,
+                 usar_autorizados_on,
                  codigo_def or None, nombre_def, nit_def, rif_def,
                  formato_numero.strip(), reinicio_numero, digitos_numero,
                  empresa_id))
@@ -1280,7 +1361,8 @@ def pedido(request: Request):
 @app.post("/pedido/enviar")
 def pedido_enviar(request: Request, referencia: str = Form(""),
                   cliente_codigo: str = Form(""), cliente_nombre: str = Form(""),
-                  cliente_nit: str = Form("")):
+                  cliente_nit: str = Form(""),
+                  autorizado_codigo: str = Form("")):
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
@@ -1288,6 +1370,9 @@ def pedido_enviar(request: Request, referencia: str = Form(""),
     if not carrito:
         return RedirectResponse("/pedido?vacio=1", status_code=303)
     empresa = empresa_del(usuario, None)
+    # con Clientes activado, el vendedor TIENE que elegir un cliente
+    if empresa["usar_clientes"] and not cliente_codigo.strip():
+        return RedirectResponse("/pedido?falta_cliente=1", status_code=303)
     # re-lee los precios de la BD (no confía en lo que vino del navegador)
     for item in carrito:
         p = db.fila("SELECT precio, descripcion FROM productos "
@@ -1302,13 +1387,28 @@ def pedido_enviar(request: Request, referencia: str = Form(""),
         cliente_codigo, cliente_nombre, cliente_nit = "", "", ""
     # si no se eligió cliente se deja vacío: el agente usa el predeterminado
     # configurado para la empresa (o CONSUMIDOR FINAL si no hay ninguno)
+    # autorizado: opcional, siempre de ese cliente; NUNCA se manda a A2,
+    # solo se imprime en la hoja.
+    aut_codigo = aut_nombre = aut_direccion = None
+    if empresa["usar_clientes"] and empresa["usar_autorizados"]:
+        cod_aut = autorizado_codigo.strip()
+        if cod_aut:
+            aut = db.fila(
+                "SELECT nombre, direccion FROM autorizados WHERE empresa_id = ? "
+                "AND cliente_codigo = ? AND codigo = ?",
+                (empresa["id"], cliente_codigo.strip(), cod_aut))
+            if aut is not None:
+                aut_codigo = cod_aut
+                aut_nombre = aut["nombre"]
+                aut_direccion = aut["direccion"]
     cur = db.ejecutar(
         "INSERT INTO pedidos (empresa_id, vendedor_id, numero, referencia, estado, "
-        "total, cliente_codigo, cliente_nombre, cliente_nit) "
-        "VALUES (?, ?, ?, ?, 'pendiente', ?, ?, ?, ?)",
+        "total, cliente_codigo, cliente_nombre, cliente_nit, "
+        "autorizado_codigo, autorizado_nombre, autorizado_direccion) "
+        "VALUES (?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?)",
         (empresa["id"], usuario["id"], numero, referencia.strip(), total,
          cliente_codigo.strip() or None, cliente_nombre.strip() or None,
-         cliente_nit.strip() or None))
+         cliente_nit.strip() or None, aut_codigo, aut_nombre, aut_direccion))
     pedido_id = cur.lastrowid
     for item in carrito:
         db.ejecutar("INSERT INTO pedido_lineas (pedido_id, codigo, descripcion, "

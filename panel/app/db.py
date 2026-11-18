@@ -116,6 +116,22 @@ CREATE TABLE IF NOT EXISTS clientes (
     UNIQUE (empresa_id, codigo)
 );
 
+-- Autorizados de A2 (Sautorizados): direcciones que pertenecen a un cliente.
+-- Es solo informativo para la hoja del pedido; NADA de esto se escribe en A2.
+CREATE TABLE IF NOT EXISTS autorizados (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+    codigo TEXT NOT NULL,
+    cliente_codigo TEXT NOT NULL,
+    nombre TEXT,
+    direccion TEXT,
+    activo INTEGER DEFAULT 1,
+    actualizado TEXT DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (empresa_id, codigo)
+);
+CREATE INDEX IF NOT EXISTS idx_autorizados_cliente
+    ON autorizados(empresa_id, cliente_codigo);
+
 -- Carrito del pedido en curso, por usuario y empresa: no depende de la
 -- sesión, así que sobrevive a cerrar la página o volver a iniciar sesión
 CREATE TABLE IF NOT EXISTS carritos (
@@ -192,6 +208,11 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_nit TEXT",
         "ALTER TABLE empresas ADD COLUMN cliente_predeterminado_rif TEXT",
         "ALTER TABLE productos ADD COLUMN codigo_busqueda TEXT",
+        "ALTER TABLE empresas ADD COLUMN usar_autorizados INTEGER DEFAULT 0",
+        "ALTER TABLE empresas ADD COLUMN sync_autorizados_pedido INTEGER DEFAULT 0",
+        "ALTER TABLE pedidos ADD COLUMN autorizado_codigo TEXT",
+        "ALTER TABLE pedidos ADD COLUMN autorizado_nombre TEXT",
+        "ALTER TABLE pedidos ADD COLUMN autorizado_direccion TEXT",
     ):
         try:
             con.execute(alter)

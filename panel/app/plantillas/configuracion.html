@@ -63,6 +63,15 @@
       <option value="" {% if not e.usar_clientes %}selected{% endif %}>Desactivado: el vendedor no ve el cliente</option>
     </select>
   </label>
+  <label>Autorizados en los pedidos
+    <select name="usar_autorizados" id="usar_autorizados" onchange="mostrarClienteDefecto()">
+      <option value="1" {% if e.usar_autorizados %}selected{% endif %}>Activado: el vendedor puede elegir autorizado</option>
+      <option value="" {% if not e.usar_autorizados %}selected{% endif %}>Desactivado: el vendedor no ve autorizados</option>
+    </select>
+  </label>
+  <p class="sub" id="aviso-autorizados" style="display:none;margin-top:-6px">
+    Los autorizados solo se pueden activar cuando Clientes está activado.
+  </p>
   <div id="caja-cliente-defecto" class="caja-cliente-defecto">
     <label>Cliente predeterminado (todo pedido sin cliente va a este)
       <input type="text" id="cp-buscar" placeholder="Escribe el nombre, código o NIT…"
@@ -139,6 +148,15 @@ function mostrarClienteDefecto() {
   if (!usa || !caja) return;
   // cuando el vendedor no ve el cliente, este es el que se usa en A2
   caja.style.display = usa.value === '1' ? 'none' : 'block';
+  // los autorizados dependen de los clientes: sin clientes quedan apagados
+  var aut = document.getElementById('usar_autorizados');
+  var aviso = document.getElementById('aviso-autorizados');
+  if (aut) {
+    var hayClientes = usa.value === '1';
+    aut.disabled = !hayClientes;
+    if (!hayClientes) aut.value = '';
+    if (aviso) aviso.style.display = hayClientes ? 'none' : 'block';
+  }
 }
 mostrarClienteDefecto();
 (function () {
