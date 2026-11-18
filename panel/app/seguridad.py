@@ -50,9 +50,10 @@ def descifrar_clave(guardada: str) -> str:
         return ""
 
 
-def crear_sesion(usuario_id: int) -> str:
+def crear_sesion(usuario_id: int, horas: int | None = None) -> str:
     token = secrets.token_urlsafe(32)
-    expira = (datetime.now() + timedelta(hours=config.SESION_HORAS)).isoformat(timespec="seconds")
+    duracion = horas if horas is not None else config.SESION_HORAS
+    expira = (datetime.now() + timedelta(hours=duracion)).isoformat(timespec="seconds")
     db.ejecutar("INSERT INTO sesiones (token, usuario_id, expira) VALUES (?, ?, ?)",
                 (token, usuario_id, expira))
     return token

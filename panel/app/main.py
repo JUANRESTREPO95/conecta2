@@ -332,7 +332,8 @@ async def app_login(request: Request):
     if seg is None or not seg["activo"] or \
             not seguridad.verificar_clave(clave, seg["clave_hash"]):
         return _json_error("código o clave incorrectos", 401)
-    sesion = seguridad.crear_sesion(seg["id"])
+    # sesión larga: la app la guarda para no pedir la clave cada vez
+    sesion = seguridad.crear_sesion(seg["id"], horas=24 * 30)
     db.ejecutar("UPDATE sesiones SET empresa_activa = ? WHERE token = ?",
                 (empresa["id"], sesion))
     return {"ok": True, "sesion": sesion,
