@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS productos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     empresa_id INTEGER NOT NULL REFERENCES empresas(id),
     codigo TEXT NOT NULL,                -- código sin espacios (recortado, en mayúscula)
+    codigo_a2 TEXT,                      -- código original de A2 (con espacios)
     codigo_busqueda TEXT,                -- código normalizado para buscar por tramos
     descripcion TEXT,
     marca TEXT,
