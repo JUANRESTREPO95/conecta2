@@ -531,6 +531,7 @@ async def app_pedido(request: Request):
 
     items = []
     faltantes = []
+    sin_stock = []
     for linea in lineas:
         if not isinstance(linea, dict):
             faltantes.append("(línea inválida)")
@@ -550,10 +551,17 @@ async def app_pedido(request: Request):
         if prod is None:
             faltantes.append(codigo)
             continue
+        disponible = existencia_visible(empresa, codigo)
+        if cantidad > disponible:
+            sin_stock.append(f"{codigo} (hay {int(disponible)})")
+            continue
         items.append({"codigo": codigo, "descripcion": prod["descripcion"],
                       "cantidad": cantidad, "precio": float(prod["precio"] or 0)})
     if faltantes:
         return _json_error("productos no disponibles: " + ", ".join(faltantes[:10]))
+    if sin_stock:
+        return _json_error(
+            "Sin existencia suficiente: " + ", ".join(sin_stock[:10]))
     total = sum(i["cantidad"] * i["precio"] for i in items)
     numero = numero_siguiente(empresa["id"], usuario, empresa)
 
@@ -1687,6 +1695,20 @@ def carrito_guardar(usuario, carrito: list) -> None:
                 (usuario["token"],))
 
 
+def existencia_visible(empresa, codigo: str) -> float:
+    """Existencia que ve el vendedor, según el modo de depósito de la empresa."""
+    filas = db.filas(
+        "SELECT deposito, existencia FROM stock WHERE empresa_id = ? "
+        "AND codigo_producto = ?", (empresa["id"], codigo))
+    por_dep = {int(r["deposito"]): float(r["existencia"] or 0) for r in filas}
+    modo = empresa["deposito_modo"] or "1"
+    if modo == "2":
+        return por_dep.get(2, 0.0)
+    if modo == "suma":
+        return por_dep.get(1, 0.0) + por_dep.get(2, 0.0)
+    return por_dep.get(1, 0.0)
+
+
 @app.post("/pedido/agregar")
 def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = Form(1)):
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
@@ -1701,18 +1723,31 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
                        (empresa["id"], codigo))
     if producto is None:
         return RedirectResponse("/catalogo?aviso=producto", status_code=303)
+    disponible = int(existencia_visible(empresa, producto["codigo"]))
     carrito = carrito_obtener(usuario)
+    actual = next((int(i["cantidad"]) for i in carrito
+                   if i["codigo"] == producto["codigo"]), 0)
+    if disponible <= 0 or actual >= disponible:
+        if request.headers.get("x-requested-with") == "fetch":
+            return {"ok": False,
+                    "mensaje": "No hay existencia suficiente de este producto.",
+                    **resumen_carrito(carrito)}
+        return RedirectResponse("/catalogo?aviso=sin_stock", status_code=303)
+    sumar = min(cantidad, disponible - actual)
     for item in carrito:
         if item["codigo"] == producto["codigo"]:
-            item["cantidad"] += cantidad
+            item["cantidad"] += sumar
             break
     else:
         carrito.append({"codigo": producto["codigo"], "descripcion": producto["descripcion"],
-                        "precio": producto["precio"], "cantidad": cantidad})
+                        "precio": producto["precio"], "cantidad": sumar})
     carrito_guardar(usuario, carrito)
     if request.headers.get("x-requested-with") == "fetch":
-        # el acumulado se calcula con el carrito recién guardado
-        return {"ok": True, **resumen_carrito(carrito)}
+        respuesta = {"ok": True, **resumen_carrito(carrito)}
+        if sumar < cantidad:
+            respuesta["tope"] = True
+            respuesta["mensaje"] = f"Solo hay {disponible} en existencia."
+        return respuesta
     return RedirectResponse("/pedido", status_code=303)
 
 
@@ -1721,17 +1756,19 @@ def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: float =
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return RedirectResponse("/pedido", status_code=303)
     carrito = carrito_obtener(usuario)
     cantidad = int(cantidad or 0)
-    nuevo = [i for i in carrito if i["codigo"] != codigo]
-    if cantidad > 0:
-        for item in nuevo:
-            if item["codigo"] == codigo:
-                item["cantidad"] = cantidad
-        if not any(i["codigo"] == codigo for i in nuevo):
-            viejo = next(i for i in carrito if i["codigo"] == codigo)
-            nuevo.append({**viejo, "cantidad": cantidad})
-    carrito_guardar(usuario, nuevo)
+    item = next((i for i in carrito if i["codigo"] == codigo), None)
+    if item is not None:
+        disponible = int(existencia_visible(empresa, codigo))
+        if cantidad <= 0 or disponible <= 0:
+            carrito = [i for i in carrito if i["codigo"] != codigo]
+        else:
+            item["cantidad"] = min(cantidad, disponible)
+    carrito_guardar(usuario, carrito)
     return RedirectResponse("/pedido", status_code=303)
 
 
@@ -1833,6 +1870,10 @@ def pedido_enviar(request: Request, referencia: str = Form(""),
         if p is not None:
             item["precio"] = p["precio"]
             item["descripcion"] = p["descripcion"]
+    # no permitir más cantidad que la existencia visible de cada producto
+    for item in carrito:
+        if item["cantidad"] > existencia_visible(empresa, item["codigo"]):
+            return RedirectResponse("/pedido?sin_stock=1", status_code=303)
     numero = numero_siguiente(empresa["id"], usuario, empresa)
     total = sum(i["cantidad"] * (i["precio"] or 0) for i in carrito)
     if not empresa["usar_clientes"]:

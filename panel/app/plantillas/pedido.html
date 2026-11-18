@@ -3,6 +3,7 @@
 <h1>Mi pedido</h1>
 {% if request.query_params.get('vacio') %}<p class="error">El carrito está vacío.</p>{% endif %}
 {% if request.query_params.get('falta_cliente') %}<p class="error">Elige el cliente antes de enviar el pedido.</p>{% endif %}
+{% if request.query_params.get('sin_stock') %}<p class="error">La existencia cambió: hay productos con cantidad mayor a la disponible. Ajusta las cantidades.</p>{% endif %}
 {% if carrito %}
 <table>
   <thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>

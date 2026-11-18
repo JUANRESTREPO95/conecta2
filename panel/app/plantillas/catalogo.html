@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h1>Catálogo{% if empresa %} — {{ empresa.nombre }}{% endif %}</h1>
+{% if request.query_params.get('aviso') == 'sin_stock' %}<p class="error">No hay existencia suficiente de ese producto.</p>{% endif %}
 {% if sin_empresa %}
 <p class="error">Aún no hay empresas. Créalas en <a href="/empresas">Empresas</a> si eres el super usuario.</p>
 {% else %}
@@ -91,7 +92,14 @@
       method: 'POST', body: cuerpoForm,
       headers: { 'X-Requested-With': 'fetch' }
     }).then(function (r) { return r.json(); }).then(function (d) {
-      if (!d.ok) { window.location = '/catalogo'; return; }
+      if (!d.ok) {
+        if (aviso) aviso.textContent = d.mensaje || 'No hay existencia suficiente.';
+        actualizarCarrito(d);
+        return;
+      }
+      if (d.tope && aviso) {
+        aviso.textContent = d.mensaje || 'Solo se agregó hasta la existencia disponible.';
+      }
       actualizarCarrito(d);
     });
   }
