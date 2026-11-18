@@ -1,7 +1,16 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h1>Apps habilitadas — {{ e.nombre }}</h1>
-<p><a href="/empresas">« Volver a Empresas</a></p>
+<p>
+  {% if usuario.rol == 'super' %}
+    <a href="/empresas">« Volver a Empresas</a>
+  {% else %}
+    <a href="/inicio">« Volver al inicio</a>
+  {% endif %}
+</p>
+{% if request.query_params.get('error') == 'permiso' %}
+<p class="error">No tienes permiso para esa empresa.</p>
+{% endif %}
 
 {% if token_nuevo %}
 <div class="caja" style="border-color:#16a34a">

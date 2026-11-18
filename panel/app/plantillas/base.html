@@ -24,6 +24,7 @@
       <a href="/pedidos">Historial</a>
       {% if usuario.rol in ('admin', 'super') %}
         <a href="/vendedores">Vendedores</a>
+        <a href="/apps">Apps</a>
       {% endif %}
       {% if usuario.rol == 'super' %}
         <a href="/configuracion">Configuración</a>

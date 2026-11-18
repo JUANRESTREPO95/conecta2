@@ -1186,16 +1186,32 @@ def empresas_crear(request: Request, nombre: str = Form(...)):
 
 # ---------- apps habilitadas (tokens de la app Android) ----------
 
+def _empresa_apps(usuario, empresa_id: int | None = None):
+    """Empresa sobre la que puede operar el usuario en Apps.
+
+    El administrativo solo maneja las apps de su propia empresa; el super
+    puede elegir cualquier empresa.
+    """
+    if usuario["rol"] == "admin":
+        if not usuario["empresa_id"]:
+            return None
+        if empresa_id is not None and empresa_id != usuario["empresa_id"]:
+            return None
+        return db.fila("SELECT * FROM empresas WHERE id = ?",
+                       (usuario["empresa_id"],))
+    return empresa_del(usuario, empresa_id)
+
+
 @app.get("/apps")
 def apps(request: Request, empresa: int | None = None):
-    usuario = requiere_rol(request, ("super",))
+    usuario = requiere_rol(request, ("admin", "super"))
     if usuario is None:
         return RedirectResponse("/inicio", status_code=303)
-    if empresa:
+    if usuario["rol"] == "super" and empresa:
         fija_empresa_activa(usuario, empresa)
-    emp = empresa_del(usuario, empresa)
+    emp = _empresa_apps(usuario, empresa if usuario["rol"] == "super" else None)
     if emp is None:
-        return RedirectResponse("/empresas", status_code=303)
+        return RedirectResponse("/inicio", status_code=303)
     lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
                      "ORDER BY id DESC", (emp["id"],))
     return respuesta(request, "apps.html",
@@ -1207,54 +1223,69 @@ def apps_crear(request: Request, empresa_id: int = Form(...),
                nombre: str = Form("")):
     import secrets as _secrets
 
-    usuario = requiere_rol(request, ("super",))
+    usuario = requiere_rol(request, ("admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    emp = db.fila("SELECT * FROM empresas WHERE id = ?", (empresa_id,))
+    emp = _empresa_apps(usuario, empresa_id)
     if emp is None:
-        return RedirectResponse("/empresas", status_code=303)
+        return RedirectResponse("/apps?error=permiso", status_code=303)
     token = _secrets.token_urlsafe(32)
     huella = "app$" + hashlib.sha256(token.encode()).hexdigest()
     db.ejecutar("INSERT INTO app_tokens (empresa_id, nombre, token_hash) "
                 "VALUES (?, ?, ?)",
-                (empresa_id, nombre.strip() or "Teléfono", huella))
+                (emp["id"], nombre.strip() or "Teléfono", huella))
     lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
                      "ORDER BY id DESC", (emp["id"],))
     return respuesta(request, "apps.html",
                      {"e": emp, "apps": lista, "token_nuevo": token})
 
 
+def _volver_apps(usuario, empresa) -> RedirectResponse:
+    if usuario["rol"] != "super":
+        return RedirectResponse("/apps", status_code=303)
+    return RedirectResponse(f"/apps?empresa={empresa['id']}", status_code=303)
+
+
 @app.post("/apps/revocar")
 def apps_revocar(request: Request, app_id: int = Form(...),
                  empresa_id: int = Form(...)):
-    usuario = requiere_rol(request, ("super",))
+    usuario = requiere_rol(request, ("admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
+    emp = _empresa_apps(usuario, empresa_id)
+    if emp is None:
+        return RedirectResponse("/apps?error=permiso", status_code=303)
     db.ejecutar("UPDATE app_tokens SET activo = 0 "
-                "WHERE id = ? AND empresa_id = ?", (app_id, empresa_id))
-    return RedirectResponse(f"/apps?empresa={empresa_id}", status_code=303)
+                "WHERE id = ? AND empresa_id = ?", (app_id, emp["id"]))
+    return _volver_apps(usuario, emp)
 
 
 @app.post("/apps/reactivar")
 def apps_reactivar(request: Request, app_id: int = Form(...),
                    empresa_id: int = Form(...)):
-    usuario = requiere_rol(request, ("super",))
+    usuario = requiere_rol(request, ("admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
+    emp = _empresa_apps(usuario, empresa_id)
+    if emp is None:
+        return RedirectResponse("/apps?error=permiso", status_code=303)
     db.ejecutar("UPDATE app_tokens SET activo = 1 "
-                "WHERE id = ? AND empresa_id = ?", (app_id, empresa_id))
-    return RedirectResponse(f"/apps?empresa={empresa_id}", status_code=303)
+                "WHERE id = ? AND empresa_id = ?", (app_id, emp["id"]))
+    return _volver_apps(usuario, emp)
 
 
 @app.post("/apps/eliminar")
 def apps_eliminar(request: Request, app_id: int = Form(...),
                   empresa_id: int = Form(...)):
-    usuario = requiere_rol(request, ("super",))
+    usuario = requiere_rol(request, ("admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
+    emp = _empresa_apps(usuario, empresa_id)
+    if emp is None:
+        return RedirectResponse("/apps?error=permiso", status_code=303)
     db.ejecutar("DELETE FROM app_tokens WHERE id = ? AND empresa_id = ?",
-                (app_id, empresa_id))
-    return RedirectResponse(f"/apps?empresa={empresa_id}", status_code=303)
+                (app_id, emp["id"]))
+    return _volver_apps(usuario, emp)
 
 
 # ---------- vendedores ----------
