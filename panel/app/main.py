@@ -320,7 +320,7 @@ async def app_login(request: Request):
         datos = await request.json()
     except Exception:
         datos = {}
-    codigo = str((datos or {}).get("codigo") or "").strip()
+    codigo = str((datos or {}).get("codigo") or "").strip().upper()
     clave = str((datos or {}).get("clave") or "")
     if not codigo or not clave:
         return _json_error("faltan código o clave")
