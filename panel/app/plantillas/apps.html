@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Apps habilitadas — {{ e.nombre }}</h1>
+<p><a href="/empresas">« Volver a Empresas</a></p>
+
+{% if token_nuevo %}
+<div class="caja" style="border-color:#16a34a">
+  <p class="ok"><strong>Token de la app — se muestra una sola vez</strong></p>
+  <p><input id="token-nuevo" readonly value="{{ token_nuevo }}"
+            style="width:100%;font-family:Consolas,monospace" onclick="this.select()"></p>
+  <button type="button" onclick="copiarToken()">Copiar token</button>
+  <p class="sub">Pégalo en la app en el primer arranque. Si se pierde, elimina
+    esta app y crea otra.</p>
+</div>
+{% endif %}
+
+<div class="caja">
+  <form method="post" action="/apps/crear">
+    <input type="hidden" name="empresa_id" value="{{ e.id }}">
+    <label>Nombre del teléfono o de la app
+      <input name="nombre" placeholder="Ej: Celular de Juan" required>
+    </label>
+    <button type="submit">+ Crear token de app</button>
+  </form>
+</div>
+
+<table>
+  <thead><tr><th>Nombre</th><th>Estado</th><th>Creada</th>
+    <th>Último uso</th><th></th></tr></thead>
+  <tbody>
+  {% for a in apps %}
+  <tr>
+    <td>{{ a.nombre }}</td>
+    <td><span class="pill">{{ "activa" if a.activo else "revocada" }}</span></td>
+    <td>{{ a.creado or "—" }}</td>
+    <td>{{ a.ultimo_uso or "—" }}</td>
+    <td>
+      {% if a.activo %}
+      <form method="post" action="/apps/revocar" class="inline">
+        <input type="hidden" name="app_id" value="{{ a.id }}">
+        <input type="hidden" name="empresa_id" value="{{ e.id }}">
+        <button type="submit" title="Deja de aceptar descargas y envíos de esta app">Revocar</button>
+      </form>
+      {% else %}
+      <form method="post" action="/apps/reactivar" class="inline">
+        <input type="hidden" name="app_id" value="{{ a.id }}">
+        <input type="hidden" name="empresa_id" value="{{ e.id }}">
+        <button type="submit">Reactivar</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/apps/eliminar" class="inline"
+            onsubmit="return confirm('¿Eliminar esta app? Su token dejará de funcionar.')">
+        <input type="hidden" name="app_id" value="{{ a.id }}">
+        <input type="hidden" name="empresa_id" value="{{ e.id }}">
+        <button type="submit" class="rojo">Eliminar</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5">Todavía no hay apps para esta empresa.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<p class="sub">Revocar o eliminar corta las descargas y los envíos de esa app.
+  Los datos que ya estén guardados en el teléfono no se pueden borrar desde
+  aquí; la app deja de funcionar cuando intenta reconectar.</p>
+
+<script>
+function copiarToken() {
+  var campo = document.getElementById('token-nuevo');
+  if (!campo) return;
+  campo.select();
+  if (navigator.clipboard) { navigator.clipboard.writeText(campo.value); }
+  else { document.execCommand('copy'); }
+}
+</script>
+{% endblock %}

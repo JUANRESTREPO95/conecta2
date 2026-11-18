@@ -88,6 +88,8 @@ CREATE TABLE IF NOT EXISTS pedidos (
     referencia TEXT,
     estado TEXT NOT NULL DEFAULT 'pendiente',  -- pendiente | montado | error
     total REAL NOT NULL DEFAULT 0,       -- sin IVA
+    uuid TEXT,                           -- identificador de la app (idempotencia)
+    origen TEXT NOT NULL DEFAULT 'panel',-- panel | app
     error_a2 TEXT,                       -- último error al montar (no cambia el estado)
     intentos INTEGER NOT NULL DEFAULT 0, -- intentos fallidos de montaje
     a2_autoincrement INTEGER,            -- FTI_AUTOINCREMENT que quedó en A2
@@ -142,6 +144,17 @@ CREATE TABLE IF NOT EXISTS carritos (
     carrito TEXT,
     actualizado TEXT DEFAULT (datetime('now', 'localtime')),
     PRIMARY KEY (usuario_id, empresa_id)
+);
+
+-- Tokens de las apps Android (uno por teléfono; el super los revoca)
+CREATE TABLE IF NOT EXISTS app_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+    nombre TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado TEXT DEFAULT (datetime('now', 'localtime')),
+    ultimo_uso TEXT
 );
 
 -- Vendedores de A2 (los sube el agente; el panel los importa de aquí)
@@ -216,11 +229,16 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE pedidos ADD COLUMN autorizado_nombre TEXT",
         "ALTER TABLE pedidos ADD COLUMN autorizado_direccion TEXT",
         "ALTER TABLE pedidos ADD COLUMN intentos INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE pedidos ADD COLUMN uuid TEXT",
+        "ALTER TABLE pedidos ADD COLUMN origen TEXT DEFAULT 'panel'",
     ):
         try:
             con.execute(alter)
         except sqlite3.OperationalError:
             pass
+    # el UUID de la app es único por empresa (las filas viejas quedan en NULL)
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_uuid "
+                "ON pedidos(empresa_id, uuid)")
     # migración del viejo "ocultar agotados" (sí/no) al nuevo modo de 3 opciones
     con.execute("UPDATE empresas SET formato_numero = "
                 "'{vendedor}-{anio}{numero}' WHERE formato_numero IS NULL")

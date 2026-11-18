@@ -7,6 +7,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -16,6 +17,8 @@ from app import a2, config, db, hoja, seguridad
 db.esquema()  # garantiza el esquema también cuando uvicorn recarga en modo dev
 
 app = FastAPI(title="Conecta2", docs_url=None, redoc_url=None)
+# el catálogo de la app son varios MB: se comprime la respuesta
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.middleware("http")
@@ -250,6 +253,346 @@ def api_saludo(request: Request):
     return {"ok": True, "empresa": usuario["empresa_id"]}
 
 
+# ---------- API para la app Android ----------
+
+def usuario_app(request: Request):
+    """Valida el token de una app habilitada (sha256 en app_tokens)."""
+    cab = request.headers.get("authorization") or ""
+    if not cab.lower().startswith("bearer "):
+        return None
+    token = cab[7:].strip()
+    huella = "app$" + hashlib.sha256(token.encode()).hexdigest()
+    fila = db.fila("SELECT * FROM app_tokens WHERE token_hash = ? AND activo = 1",
+                   (huella,))
+    if fila is not None:
+        db.ejecutar("UPDATE app_tokens SET ultimo_uso = datetime('now','localtime') "
+                    "WHERE id = ?", (fila["id"],))
+    return fila
+
+
+def _empresa_app(token_app):
+    if token_app is None:
+        return None
+    return db.fila("SELECT * FROM empresas WHERE id = ?", (token_app["empresa_id"],))
+
+
+def _json_error(texto: str, codigo: int = 400) -> Response:
+    import json as _json
+    return Response(_json.dumps({"error": texto}), status_code=codigo,
+                    media_type="application/json")
+
+
+def sesion_app(request: Request, empresa_id: int):
+    """Sesión del vendedor que la app manda en el encabezado X-Sesion."""
+    token = (request.headers.get("x-sesion") or "").strip()
+    if not token:
+        return None
+    usuario = seguridad.usuario_de_sesion(token)
+    if usuario is None or usuario["empresa_id"] != empresa_id:
+        return None
+    if usuario["rol"] not in ("vendedor", "admin", "super"):
+        return None
+    return usuario
+
+
+@app.get("/api/app/saludo")
+def app_saludo(request: Request):
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    return {"ok": True,
+            "empresa": {"id": empresa["id"], "nombre": empresa["nombre"]},
+            "servidor": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+
+@app.post("/api/app/login")
+async def app_login(request: Request):
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    try:
+        datos = await request.json()
+    except Exception:
+        datos = {}
+    codigo = str((datos or {}).get("codigo") or "").strip()
+    clave = str((datos or {}).get("clave") or "")
+    if not codigo or not clave:
+        return _json_error("faltan código o clave")
+    seg = db.fila(
+        "SELECT id, clave_hash, rol, activo, nombre FROM usuarios "
+        "WHERE empresa_id = ? AND codigo = ? "
+        "AND rol IN ('vendedor', 'admin') LIMIT 1",
+        (empresa["id"], codigo))
+    if seg is None or not seg["activo"] or \
+            not seguridad.verificar_clave(clave, seg["clave_hash"]):
+        return _json_error("código o clave incorrectos", 401)
+    sesion = seguridad.crear_sesion(seg["id"])
+    db.ejecutar("UPDATE sesiones SET empresa_activa = ? WHERE token = ?",
+                (empresa["id"], sesion))
+    return {"ok": True, "sesion": sesion,
+            "usuario": {"id": seg["id"], "codigo": codigo,
+                        "nombre": seg["nombre"], "rol": seg["rol"]},
+            "empresa": {"id": empresa["id"], "nombre": empresa["nombre"]}}
+
+
+@app.get("/api/app/datos")
+def app_datos(request: Request):
+    """Catálogo, existencias, clientes y autorizados para la app.
+
+    Con `desde` (fecha del último sync) solo manda lo que cambió. Las
+    existencias van completas porque cambian a cada rato.
+    """
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    desde = (request.query_params.get("desde") or "").strip()
+
+    cond_p = "p.empresa_id = ? AND p.internet = 1 AND p.activo = 1"
+    vals_p: list = [empresa["id"]]
+    if desde:
+        cond_p += " AND p.actualizado >= ?"
+        vals_p.append(desde)
+    productos = [dict(r) for r in db.filas(
+        "SELECT p.codigo, p.descripcion, p.unidad, p.precio, p.actualizado "
+        "FROM productos p WHERE " + cond_p + " ORDER BY p.descripcion",
+        tuple(vals_p))]
+
+    eliminados: list = []
+    if desde:
+        eliminados = [r["codigo"] for r in db.filas(
+            "SELECT codigo FROM productos WHERE empresa_id = ? "
+            "AND actualizado >= ? AND (internet = 0 OR activo = 0)",
+            (empresa["id"], desde))]
+
+    # existencia visible según el modo de depósito de la empresa
+    modo = empresa["deposito_modo"] or "1"
+    filas_stock = db.filas(
+        "SELECT p.codigo, "
+        "MAX(CASE WHEN s.deposito = 1 THEN s.existencia END) AS dep1, "
+        "MAX(CASE WHEN s.deposito = 2 THEN s.existencia END) AS dep2 "
+        "FROM productos p LEFT JOIN stock s ON s.empresa_id = p.empresa_id "
+        "AND s.codigo_producto = p.codigo "
+        "WHERE p.empresa_id = ? AND p.internet = 1 AND p.activo = 1 "
+        "GROUP BY p.codigo", (empresa["id"],))
+    existencias: dict = {}
+    for r in filas_stock:
+        if modo == "1":
+            valor = r["dep1"] or 0
+        elif modo == "2":
+            valor = r["dep2"] or 0
+        else:
+            valor = (r["dep1"] or 0) + (r["dep2"] or 0)
+        existencias[r["codigo"]] = float(valor)
+
+    cond_c = "empresa_id = ?"
+    vals_c: list = [empresa["id"]]
+    if desde:
+        cond_c += " AND actualizado >= ?"
+        vals_c.append(desde)
+    clientes = [dict(r) for r in db.filas(
+        "SELECT codigo, nombre, nit, rif FROM clientes WHERE " + cond_c,
+        tuple(vals_c))]
+
+    cond_a = "empresa_id = ?"
+    vals_a: list = [empresa["id"]]
+    if desde:
+        cond_a += " AND actualizado >= ?"
+        vals_a.append(desde)
+    autorizados = [dict(r) for r in db.filas(
+        "SELECT codigo, cliente_codigo, nombre, direccion, activo "
+        "FROM autorizados WHERE " + cond_a, tuple(vals_a))]
+
+    config_empresa = {
+        "id": empresa["id"], "nombre": empresa["nombre"],
+        "color_primario": empresa["color_primario"],
+        "color_letra": empresa["color_letra"],
+        "logo": empresa["logo"],
+        "usar_clientes": empresa["usar_clientes"],
+        "usar_autorizados": empresa["usar_autorizados"],
+        "deposito_modo": empresa["deposito_modo"],
+        "filtro_existencia": empresa["filtro_existencia"],
+        "existencia_minima": empresa["existencia_minima"],
+        "cliente_predeterminado_codigo": empresa["cliente_predeterminado_codigo"],
+        "cliente_predeterminado_nombre": empresa["cliente_predeterminado_nombre"],
+        "cliente_predeterminado_nit": empresa["cliente_predeterminado_nit"],
+    }
+    return {
+        "ok": True,
+        "servidor": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "empresa": config_empresa,
+        "productos": productos,
+        "existencias": existencias,
+        "eliminados": eliminados,
+        "clientes": clientes,
+        "autorizados": autorizados,
+    }
+
+
+@app.get("/api/app/mis-pedidos")
+def app_mis_pedidos(request: Request):
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None:
+        return _json_error("empresa inactiva", 403)
+    usuario = sesion_app(request, empresa["id"])
+    if usuario is None:
+        return _json_error("sesión vencida", 401)
+    cond = "p.empresa_id = ?"
+    vals: list = [empresa["id"]]
+    if usuario["rol"] == "vendedor":
+        cond += " AND p.vendedor_id = ?"
+        vals.append(usuario["id"])
+    pedidos = db.filas(
+        "SELECT p.id, p.numero, p.referencia, p.estado, p.total, p.creado, "
+        "p.montado, p.error_a2, p.intentos, p.uuid, p.cliente_codigo, "
+        "p.cliente_nombre, p.cliente_nit, p.autorizado_codigo, "
+        "p.autorizado_nombre, p.autorizado_direccion "
+        "FROM pedidos p WHERE " + cond + " ORDER BY p.id DESC LIMIT 200",
+        tuple(vals))
+    salida = []
+    for p in pedidos:
+        lineas = db.filas(
+            "SELECT codigo, descripcion, cantidad, precio FROM pedido_lineas "
+            "WHERE pedido_id = ? ORDER BY id", (p["id"],))
+        salida.append(dict(p) | {"lineas": [dict(l) for l in lineas]})
+    return {"ok": True, "pedidos": salida}
+
+
+@app.post("/api/app/pedido")
+async def app_pedido(request: Request):
+    """Crea un pedido enviado desde la app (con UUID para no duplicar)."""
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    usuario = sesion_app(request, empresa["id"])
+    if usuario is None:
+        return _json_error("sesión vencida", 401)
+    try:
+        datos = await request.json()
+    except Exception:
+        return _json_error("datos inválidos")
+    datos = datos if isinstance(datos, dict) else {}
+    uuid = str(datos.get("uuid") or "").strip()
+    if not uuid:
+        return _json_error("falta el uuid del pedido")
+    previo = db.fila(
+        "SELECT id, numero, estado, total, creado FROM pedidos "
+        "WHERE empresa_id = ? AND uuid = ?", (empresa["id"], uuid))
+    if previo is not None:
+        return {"ok": True, "repetido": True, "id": previo["id"],
+                "numero": previo["numero"], "estado": previo["estado"],
+                "total": previo["total"], "creado": previo["creado"]}
+
+    referencia = str(datos.get("referencia") or "").strip()[:250]
+    cliente_codigo = str(datos.get("cliente_codigo") or "").strip()
+    cliente_nombre = str(datos.get("cliente_nombre") or "").strip()
+    cliente_nit = str(datos.get("cliente_nit") or "").strip()
+    autorizado_codigo = str(datos.get("autorizado_codigo") or "").strip()
+    lineas = datos.get("lineas") or []
+    if not isinstance(lineas, list) or not lineas:
+        return _json_error("el pedido no tiene líneas")
+    if empresa["usar_clientes"] and not cliente_codigo:
+        return _json_error("falta el cliente")
+    if empresa["usar_clientes"]:
+        cli = db.fila("SELECT nombre, nit FROM clientes WHERE empresa_id = ? "
+                      "AND codigo = ?", (empresa["id"], cliente_codigo))
+        if cli is None:
+            return _json_error("cliente no encontrado")
+        cliente_nombre = (cli["nombre"] or cliente_nombre)
+        cliente_nit = (cli["nit"] or cliente_nit)
+    else:
+        cliente_codigo = cliente_nombre = cliente_nit = ""
+
+    aut_codigo = aut_nombre = aut_direccion = None
+    if empresa["usar_clientes"] and empresa["usar_autorizados"] and autorizado_codigo:
+        aut = db.fila(
+            "SELECT nombre, direccion FROM autorizados WHERE empresa_id = ? "
+            "AND cliente_codigo = ? AND codigo = ?",
+            (empresa["id"], cliente_codigo, autorizado_codigo))
+        if aut is not None:
+            aut_codigo = autorizado_codigo
+            aut_nombre = aut["nombre"]
+            aut_direccion = aut["direccion"]
+
+    items = []
+    faltantes = []
+    for linea in lineas:
+        if not isinstance(linea, dict):
+            faltantes.append("(línea inválida)")
+            continue
+        codigo = str(linea.get("codigo") or "")
+        try:
+            cantidad = float((linea or {}).get("cantidad") or 0)
+        except (TypeError, ValueError):
+            cantidad = 0
+        if not codigo or cantidad <= 0:
+            faltantes.append(codigo or "(sin código)")
+            continue
+        prod = db.fila(
+            "SELECT descripcion, precio FROM productos WHERE empresa_id = ? "
+            "AND codigo = ? AND internet = 1 AND activo = 1",
+            (empresa["id"], codigo))
+        if prod is None:
+            faltantes.append(codigo)
+            continue
+        items.append({"codigo": codigo, "descripcion": prod["descripcion"],
+                      "cantidad": cantidad, "precio": float(prod["precio"] or 0)})
+    if faltantes:
+        return _json_error("productos no disponibles: " + ", ".join(faltantes[:10]))
+    total = sum(i["cantidad"] * i["precio"] for i in items)
+    numero = numero_siguiente(empresa["id"], usuario, empresa)
+
+    import sqlite3 as _sqlite3
+    con = db.conectar()
+    try:
+        with con:
+            cur = con.execute(
+                "INSERT INTO pedidos (empresa_id, vendedor_id, numero, "
+                "referencia, estado, total, cliente_codigo, cliente_nombre, "
+                "cliente_nit, autorizado_codigo, autorizado_nombre, "
+                "autorizado_direccion, uuid, origen) "
+                "VALUES (?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?, ?, 'app')",
+                (empresa["id"], usuario["id"], numero, referencia, total,
+                 cliente_codigo or None, cliente_nombre or None,
+                 cliente_nit or None, aut_codigo, aut_nombre, aut_direccion,
+                 uuid))
+            pedido_id = cur.lastrowid
+            for it in items:
+                con.execute(
+                    "INSERT INTO pedido_lineas (pedido_id, codigo, descripcion, "
+                    "cantidad, precio) VALUES (?, ?, ?, ?, ?)",
+                    (pedido_id, it["codigo"], it["descripcion"],
+                     it["cantidad"], it["precio"]))
+    except _sqlite3.IntegrityError:
+        # dos envíos simultáneos con el mismo UUID: devolver el que ya existe
+        previo = db.fila(
+            "SELECT id, numero, estado, total, creado FROM pedidos "
+            "WHERE empresa_id = ? AND uuid = ?", (empresa["id"], uuid))
+        if previo is not None:
+            return {"ok": True, "repetido": True, "id": previo["id"],
+                    "numero": previo["numero"], "estado": previo["estado"],
+                    "total": previo["total"], "creado": previo["creado"]}
+        return _json_error("no se pudo crear el pedido", 500)
+    fila = db.fila("SELECT creado FROM pedidos WHERE id = ?", (pedido_id,))
+    return {"ok": True, "id": pedido_id, "numero": numero,
+            "estado": "pendiente", "total": total,
+            "creado": fila["creado"] if fila else ""}
+
+
 _SQL_PRODUCTO = (
     "INSERT INTO productos (empresa_id, codigo, codigo_a2, codigo_busqueda, "
     "descripcion, marca, "
@@ -262,7 +605,17 @@ _SQL_PRODUCTO = (
     "descripcion=excluded.descripcion, marca=excluded.marca, "
     "categoria=excluded.categoria, unidad=excluded.unidad, moneda=excluded.moneda, "
     "activo=excluded.activo, internet=excluded.internet, "
-    "actualizado=excluded.actualizado")
+    "actualizado=excluded.actualizado "
+    # solo se toca la fecha si algo cambió: así la app sincroniza por cambios
+    "WHERE productos.codigo_a2 IS NOT excluded.codigo_a2 "
+    "OR productos.codigo_busqueda IS NOT excluded.codigo_busqueda "
+    "OR productos.descripcion IS NOT excluded.descripcion "
+    "OR productos.marca IS NOT excluded.marca "
+    "OR productos.categoria IS NOT excluded.categoria "
+    "OR productos.unidad IS NOT excluded.unidad "
+    "OR productos.moneda IS NOT excluded.moneda "
+    "OR productos.activo IS NOT excluded.activo "
+    "OR productos.internet IS NOT excluded.internet")
 
 
 async def cuerpo_json(request: Request) -> list:
@@ -441,7 +794,10 @@ def _guarda_clientes(empresa_id: int, lote: list) -> int:
                 "actualizado) VALUES (?, ?, ?, ?, ?, datetime('now','localtime')) "
                 "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
                 "nombre=excluded.nombre, nit=excluded.nit, rif=excluded.rif, "
-                "actualizado=excluded.actualizado",
+                "actualizado=excluded.actualizado "
+                "WHERE clientes.nombre IS NOT excluded.nombre "
+                "OR clientes.nit IS NOT excluded.nit "
+                "OR clientes.rif IS NOT excluded.rif",
                 (empresa_id, codigo, c.get("nombre"), c.get("nit"),
                  c.get("rif")))
     return len(lote)
@@ -462,7 +818,11 @@ def _guarda_autorizados(empresa_id: int, lote: list) -> int:
                 "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
                 "cliente_codigo=excluded.cliente_codigo, nombre=excluded.nombre, "
                 "direccion=excluded.direccion, activo=excluded.activo, "
-                "actualizado=excluded.actualizado",
+                "actualizado=excluded.actualizado "
+                "WHERE autorizados.cliente_codigo IS NOT excluded.cliente_codigo "
+                "OR autorizados.nombre IS NOT excluded.nombre "
+                "OR autorizados.direccion IS NOT excluded.direccion "
+                "OR autorizados.activo IS NOT excluded.activo",
                 (empresa_id, codigo, cliente, a.get("nombre"),
                  a.get("direccion"), 1 if a.get("activo", True) else 0))
     return len(lote)
@@ -813,6 +1173,79 @@ def empresas_crear(request: Request, nombre: str = Form(...)):
     if nombre.strip():
         db.ejecutar("INSERT INTO empresas (nombre) VALUES (?)", (nombre.strip(),))
     return RedirectResponse("/empresas", status_code=303)
+
+
+# ---------- apps habilitadas (tokens de la app Android) ----------
+
+@app.get("/apps")
+def apps(request: Request, empresa: int | None = None):
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/inicio", status_code=303)
+    if empresa:
+        fija_empresa_activa(usuario, empresa)
+    emp = empresa_del(usuario, empresa)
+    if emp is None:
+        return RedirectResponse("/empresas", status_code=303)
+    lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
+                     "ORDER BY id DESC", (emp["id"],))
+    return respuesta(request, "apps.html",
+                     {"e": emp, "apps": lista, "token_nuevo": None})
+
+
+@app.post("/apps/crear")
+def apps_crear(request: Request, empresa_id: int = Form(...),
+               nombre: str = Form("")):
+    import secrets as _secrets
+
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    emp = db.fila("SELECT * FROM empresas WHERE id = ?", (empresa_id,))
+    if emp is None:
+        return RedirectResponse("/empresas", status_code=303)
+    token = _secrets.token_urlsafe(32)
+    huella = "app$" + hashlib.sha256(token.encode()).hexdigest()
+    db.ejecutar("INSERT INTO app_tokens (empresa_id, nombre, token_hash) "
+                "VALUES (?, ?, ?)",
+                (empresa_id, nombre.strip() or "Teléfono", huella))
+    lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
+                     "ORDER BY id DESC", (emp["id"],))
+    return respuesta(request, "apps.html",
+                     {"e": emp, "apps": lista, "token_nuevo": token})
+
+
+@app.post("/apps/revocar")
+def apps_revocar(request: Request, app_id: int = Form(...),
+                 empresa_id: int = Form(...)):
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    db.ejecutar("UPDATE app_tokens SET activo = 0 "
+                "WHERE id = ? AND empresa_id = ?", (app_id, empresa_id))
+    return RedirectResponse(f"/apps?empresa={empresa_id}", status_code=303)
+
+
+@app.post("/apps/reactivar")
+def apps_reactivar(request: Request, app_id: int = Form(...),
+                   empresa_id: int = Form(...)):
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    db.ejecutar("UPDATE app_tokens SET activo = 1 "
+                "WHERE id = ? AND empresa_id = ?", (app_id, empresa_id))
+    return RedirectResponse(f"/apps?empresa={empresa_id}", status_code=303)
+
+
+@app.post("/apps/eliminar")
+def apps_eliminar(request: Request, app_id: int = Form(...),
+                  empresa_id: int = Form(...)):
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    db.ejecutar("DELETE FROM app_tokens WHERE id = ? AND empresa_id = ?",
+                (app_id, empresa_id))
+    return RedirectResponse(f"/apps?empresa={empresa_id}", status_code=303)
 
 
 # ---------- vendedores ----------
