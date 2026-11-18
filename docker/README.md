@@ -25,6 +25,9 @@ Variables del compose:
 - `CONECTA2_PUERTO` (por defecto 8050): puerto publicado.
 - `CONECTA2_DATOS` (por defecto `./datos`): carpeta del servidor donde viven
   la base, los logos y la llave de claves.
+- `CONECTA2_CONTENEDOR` (por defecto `conecta2`): nombre del contenedor. Hay
+  que darle uno distinto a cada stack si se corren varias empresas en el mismo
+  servidor (por ejemplo `conecta2-e2`, `conecta2-e3`…).
 
 ## Cómo se levanta con Portainer (recomendado)
 
@@ -35,7 +38,13 @@ Variables del compose:
    - `CONECTA2_DATOS` = `/opt/conecta2/datos` (ruta **absoluta** del servidor;
      así la BD sobrevive a recrear el contenedor)
    - `CONECTA2_PUERTO` = `8050` (o el que quieras publicar)
+   - `CONECTA2_CONTENEDOR` = `conecta2` (cada stack necesita uno distinto)
 5. **Deploy the stack**.
+
+Para **varias empresas en el mismo servidor**: un stack por empresa, cada uno
+con su `CONECTA2_DATOS` (`/opt/conecta2/e1`, `e2`…), su `CONECTA2_PUERTO`
+(`8051`, `8052`…) y su `CONECTA2_CONTENEDOR` (`conecta2-e1`, `conecta2-e2`…).
+Docker crea las carpetas solo si no existen.
 
 - **Primera vez:** abrir esa dirección en el navegador → el panel pide crear el
   **super usuario**.

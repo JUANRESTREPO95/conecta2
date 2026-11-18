@@ -5,7 +5,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: conecta2
+    # nombre distinto por stack (varias empresas en el mismo servidor)
+    container_name: ${CONECTA2_CONTENEDOR:-conecta2}
     restart: unless-stopped
     ports:
       - "${CONECTA2_PUERTO:-8050}:8050"

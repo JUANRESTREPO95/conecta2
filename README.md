@@ -26,6 +26,8 @@ Variables:
 - `CONECTA2_PUERTO` — puerto publicado (8050 por defecto)
 - `CONECTA2_DATOS` — carpeta del servidor donde viven la base, los logos y la
   llave de claves (usar una ruta **absoluta**, por ejemplo `/opt/conecta2/datos`)
+- `CONECTA2_CONTENEDOR` — nombre del contenedor (por defecto `conecta2`).
+  Cada stack necesita uno distinto si se corren varias empresas en el servidor.
 
 ## Portainer
 
