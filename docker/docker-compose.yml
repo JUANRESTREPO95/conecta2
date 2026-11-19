@@ -3,6 +3,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    # una sola imagen compartida por todos los paneles
+    image: ${CONECTA2_IMAGEN:-conecta2:latest}
     # nombre distinto por stack (varias empresas en el mismo servidor)
     container_name: ${CONECTA2_CONTENEDOR:-conecta2}
     restart: unless-stopped
@@ -13,5 +15,5 @@ services:
       TZ: ${CONECTA2_TZ:-America/Bogota}
     volumes:
       # BD, logos y llave de claves. En Portainer poner una ruta ABSOLUTA
-      # del servidor, por ejemplo: /opt/conecta2/datos
+      # del servidor, por ejemplo: /opt/conecta2/megafantasy
       - ${CONECTA2_DATOS:-./datos}:/app/datos

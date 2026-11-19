@@ -22,12 +22,42 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 Queda en `http://IP-del-servidor:8050`.
 
-Variables:
-- `CONECTA2_PUERTO` — puerto publicado (8050 por defecto)
-- `CONECTA2_DATOS` — carpeta del servidor donde viven la base, los logos y la
-  llave de claves (usar una ruta **absoluta**, por ejemplo `/opt/conecta2/datos`)
-- `CONECTA2_CONTENEDOR` — nombre del contenedor (por defecto `conecta2`).
-  Cada stack necesita uno distinto si se corren varias empresas en el servidor.
+Variables (están todas en **`.env.example`**):
+
+| Variable | Ejemplo | Nota |
+|---|---|---|
+| `CONECTA2_CONTENEDOR` | `conecta2-megafantasy` | único por empresa |
+| `CONECTA2_PUERTO` | `8051` | uno distinto por panel (el interno siempre es 8050) |
+| `CONECTA2_DATOS` | `/opt/conecta2/megafantasy` | ruta **absoluta** y única por panel |
+| `CONECTA2_IMAGEN` | `conecta2:latest` | la misma para todos |
+| `CONECTA2_TZ` | `America/Bogota` | |
+
+## Varios paneles en el mismo Portainer
+
+Cada empresa es **un stack** con sus propias variables; la imagen se comparte.
+
+En Portainer: **Stacks → Add stack → Repository**, nombre del stack
+`conecta2-<empresa>`, mismo repo y compose path, y en **Environment variables**
+poner:
+
+```
+CONECTA2_CONTENEDOR=conecta2-megafantasy
+CONECTA2_PUERTO=8051
+CONECTA2_DATOS=/opt/conecta2/megafantasy
+CONECTA2_IMAGEN=conecta2:latest
+CONECTA2_TZ=America/Bogota
+```
+
+La segunda empresa: `conecta2-<otra>`, puerto `8052` y carpeta
+`/opt/conecta2/<otra>`. El primer arranque de cada panel crea su propio super
+usuario; las bases son independientes.
+
+Desde la línea de comandos es lo mismo con archivos distintos:
+
+```bash
+docker compose --env-file .env.megafantasy -p megafantasy up -d --build
+docker compose --env-file .env.otra -p otra up -d --build
+```
 
 ## Portainer
 

@@ -1,17 +1,23 @@
 # Conecta2 — compose en la raíz para despliegues directos (Portainer usa esta
-# ruta por defecto). La misma definición vive en docker/docker-compose.yml.
+# ruta por defecto). La misma definicion vive en docker/docker-compose.yml.
+#
+# Para varios paneles (una empresa por stack) se cambian estas variables por
+# stack; ver .env.example y el README.
 services:
   conecta2:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    # una sola imagen compartida por todos los paneles
+    image: ${CONECTA2_IMAGEN:-conecta2:latest}
     # nombre distinto por stack (varias empresas en el mismo servidor)
     container_name: ${CONECTA2_CONTENEDOR:-conecta2}
     restart: unless-stopped
     ports:
+      # puerto del servidor: uno distinto por panel (8050, 8051, 8052…)
       - "${CONECTA2_PUERTO:-8050}:8050"
     environment:
       TZ: ${CONECTA2_TZ:-America/Bogota}
     volumes:
-      # BD, logos y llave de claves (usar ruta ABSOLUTA en Portainer)
+      # BD, logos y llave de claves: UNA carpeta por panel (ruta absoluta)
       - ${CONECTA2_DATOS:-./datos}:/app/datos

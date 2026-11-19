@@ -21,13 +21,16 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 Queda en `http://IP-del-servidor:8050`.
 
-Variables del compose:
+Variables del compose (plantilla en **`.env.example`**):
 - `CONECTA2_PUERTO` (por defecto 8050): puerto publicado.
 - `CONECTA2_DATOS` (por defecto `./datos`): carpeta del servidor donde viven
   la base, los logos y la llave de claves.
 - `CONECTA2_CONTENEDOR` (por defecto `conecta2`): nombre del contenedor. Hay
   que darle uno distinto a cada stack si se corren varias empresas en el mismo
   servidor (por ejemplo `conecta2-e2`, `conecta2-e3`…).
+- `CONECTA2_IMAGEN` (por defecto `conecta2:latest`): la misma imagen para
+  todos los paneles; cada stack solo cambia sus variables.
+- `CONECTA2_TZ` (por defecto `America/Bogota`).
 
 ## Cómo se levanta con Portainer (recomendado)
 

@@ -4,8 +4,9 @@
 {% if e is none %}<p class="error">Empresa no encontrada.</p>
 {% else %}
 {% if request.query_params.get('ok') %}<p class="ok">Guardado.</p>{% endif %}
+{% if request.query_params.get('error') %}<p class="error">{{ request.query_params.get('error') }}</p>{% endif %}
 <div class="caja">
-<form method="post" action="/configuracion">
+<form method="post" action="/configuracion" enctype="multipart/form-data">
   <input type="hidden" name="empresa_id" value="{{ e.id }}">
   <label>Nombre del negocio
     <input name="nombre" value="{{ e.nombre }}" required>

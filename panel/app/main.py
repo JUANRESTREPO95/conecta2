@@ -1603,23 +1603,35 @@ def configuracion(request: Request):
     return respuesta(request, "configuracion.html", {"e": empresa})
 
 
-def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> str:
-    """Guarda la imagen subida y devuelve su ruta web /logos/... (o vacío)."""
+def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> tuple[str, str]:
+    """Guarda la imagen subida. Devuelve (ruta web, mensaje de error)."""
+    import io
     import os
     import uuid
 
     if archivo is None or not archivo.filename:
-        return ""
-    if (archivo.content_type or "") not in ("image/png", "image/jpeg", "image/webp",
-                                            "image/gif"):
-        return ""
-    datos = archivo.file.read(5 * 1024 * 1024)
+        return "", ""
+    ext = os.path.splitext(archivo.filename)[1].lower()
+    permitidas = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+    if ext not in permitidas:
+        return "", "Formato no permitido: usa PNG, JPG, WEBP o GIF."
+    # si pesa más del límite se avisa (antes se guardaba cortada y salía rota)
+    datos = archivo.file.read(5 * 1024 * 1024 + 1)
+    if len(datos) > 5 * 1024 * 1024:
+        return "", "La imagen es muy grande (máximo 5 MB)."
     if len(datos) < 10:
-        return ""
-    ext = os.path.splitext(archivo.filename)[1].lower() or ".png"
+        return "", "La imagen llegó vacía. Intenta de nuevo."
+    try:
+        from PIL import Image
+        Image.open(io.BytesIO(datos)).verify()
+    except Exception:
+        return "", "El archivo no parece una imagen válida."
     nombre = f"empresa-{empresa_id}-{uuid.uuid4().hex[:8]}{ext}"
-    (config.LOGOS / nombre).write_bytes(datos)
-    return f"/logos/{nombre}"
+    try:
+        (config.LOGOS / nombre).write_bytes(datos)
+    except OSError as e:
+        return "", f"No se pudo guardar el logo en el servidor ({e.__class__.__name__})."
+    return f"/logos/{nombre}", ""
 
 
 @app.post("/configuracion")
@@ -1627,7 +1639,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        nombre: str = Form(""), deposito: str = Form("1"),
                        color_primario: str = Form("#1e40af"),
                        color_letra: str = Form("#ffffff"),
-                       logo_file: UploadFile = File(None),
+                       logo_file: UploadFile | str = File(None),
                        quitar_logo: str = Form(""),
                        filtro: str = Form("todo"),
                        minimo: int = Form(0),
@@ -1645,7 +1657,12 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     logo = (actual or {"logo": None})["logo"]
     if quitar_logo:
         logo = None
-    subido = guardar_logo(empresa_id, logo_file)
+    if isinstance(logo_file, str):
+        # la página venía sin "multipart" (versión vieja): no es un archivo
+        subido, error_logo = "", ("Vuelve a elegir la imagen: la página estaba "
+                                  "desactualizada.")
+    else:
+        subido, error_logo = guardar_logo(empresa_id, logo_file)
     if subido:
         logo = subido
     # la barra usa el color principal; ya no se pide un color aparte
@@ -1695,6 +1712,12 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                  formato_numero.strip(), reinicio_numero, digitos_numero,
                  empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
+    if error_logo:
+        # el resto de la configuración sí se guardó; se avisa del logo
+        import urllib.parse
+        return RedirectResponse(
+            f"/configuracion?empresa={empresa_id}&error={urllib.parse.quote(error_logo)}",
+            status_code=303)
     return RedirectResponse(f"/configuracion?ok=1&empresa={empresa_id}", status_code=303)
 
 
