@@ -498,7 +498,9 @@ async def app_pedido(request: Request):
                 "numero": previo["numero"], "estado": previo["estado"],
                 "total": previo["total"], "creado": previo["creado"]}
 
-    referencia = str(datos.get("referencia") or "").strip()[:250]
+    referencia = " ".join(
+        str(datos.get("referencia") or "").replace("\t", " ").splitlines()
+    ).strip()[:250]
     cliente_codigo = str(datos.get("cliente_codigo") or "").strip()
     cliente_nombre = str(datos.get("cliente_nombre") or "").strip()
     cliente_nit = str(datos.get("cliente_nit") or "").strip()
@@ -1890,6 +1892,9 @@ def pedido_enviar(request: Request, referencia: str = Form(""),
     if not carrito:
         return RedirectResponse("/pedido?vacio=1", status_code=303)
     empresa = empresa_del(usuario, None)
+    # la referencia es un textarea: A2 no acepta saltos de línea en el INSERT
+    referencia = " ".join(
+        referencia.replace("\t", " ").splitlines()).strip()[:250]
     # con Clientes activado, el vendedor TIENE que elegir un cliente
     if empresa["usar_clientes"] and not cliente_codigo.strip():
         return RedirectResponse("/pedido?falta_cliente=1", status_code=303)
@@ -1930,7 +1935,7 @@ def pedido_enviar(request: Request, referencia: str = Form(""),
         "total, cliente_codigo, cliente_nombre, cliente_nit, "
         "autorizado_codigo, autorizado_nombre, autorizado_direccion) "
         "VALUES (?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?)",
-        (empresa["id"], usuario["id"], numero, referencia.strip(), total,
+        (empresa["id"], usuario["id"], numero, referencia, total,
          cliente_codigo.strip() or None, cliente_nombre.strip() or None,
          cliente_nit.strip() or None, aut_codigo, aut_nombre, aut_direccion))
     pedido_id = cur.lastrowid
