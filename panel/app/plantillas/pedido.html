@@ -43,6 +43,31 @@
     </label>
     <div id="cliente-resultados" class="cliente-resultados"></div>
     <p class="sub" id="cliente-elegido" style="display:none"></p>
+    {% if empresa.usar_clientes_nuevos %}
+    <div class="cliente-nuevo">
+      <button type="button" id="btn-cliente-nuevo" class="btn-neutro">+ Cliente nuevo</button>
+      <div id="caja-cliente-nuevo" style="display:none">
+        <p class="sub">Se guarda en A2 en el próximo ciclo del agente. El NIT es
+          el código del cliente.</p>
+        <label>NIT / Cédula (solo números, máximo 10)
+          <input type="text" id="cn-nit" inputmode="numeric" maxlength="10"
+                 pattern="[0-9]{1,10}" autocomplete="off">
+        </label>
+        <label>Nombre
+          <input type="text" id="cn-nombre" autocomplete="off">
+        </label>
+        <label>Dirección
+          <input type="text" id="cn-direccion" autocomplete="off">
+        </label>
+        <label>Teléfono
+          <input type="tel" id="cn-telefono" autocomplete="off">
+        </label>
+        <p class="sub" id="cn-estado"></p>
+        <button type="button" id="cn-guardar">Guardar cliente</button>
+        <button type="button" id="cn-cancelar" class="btn-neutro">Cancelar</button>
+      </div>
+    </div>
+    {% endif %}
     {% if empresa.usar_autorizados %}
     <label>Autorizado (opcional)
       <select name="autorizado_codigo" id="autorizado-codigo" disabled>
@@ -128,6 +153,8 @@
     caja.innerHTML = '';   // al elegir, se ocultan las demás opciones
     cargarAutorizados(c.codigo || '');
   }
+  // el formulario de "Cliente nuevo" usa esta misma función
+  window.elegirCliente = elegir;
   function buscar() {
     var q = entrada.value.trim();
     if (q.length < 2) { caja.innerHTML = ''; return; }
@@ -191,6 +218,71 @@
     });
   }
 
+})();
+</script>
+{% endif %}
+{% if empresa and empresa.usar_clientes and empresa.usar_clientes_nuevos %}
+<script>
+(function () {
+  var boton = document.getElementById('btn-cliente-nuevo');
+  var caja = document.getElementById('caja-cliente-nuevo');
+  if (!boton || !caja) return;
+  var nit = document.getElementById('cn-nit');
+  var nombre = document.getElementById('cn-nombre');
+  var direccion = document.getElementById('cn-direccion');
+  var telefono = document.getElementById('cn-telefono');
+  var estado = document.getElementById('cn-estado');
+  var guardar = document.getElementById('cn-guardar');
+
+  boton.addEventListener('click', function () {
+    caja.style.display = (caja.style.display === 'none') ? 'block' : 'none';
+    if (caja.style.display === 'block') nit.focus();
+  });
+  document.getElementById('cn-cancelar').addEventListener('click', function () {
+    caja.style.display = 'none';
+    estado.textContent = '';
+  });
+  // el NIT es solo números, máximo 10
+  nit.addEventListener('input', function () {
+    nit.value = nit.value.replace(/\D/g, '').slice(0, 10);
+  });
+  guardar.addEventListener('click', function () {
+    var datos = new FormData();
+    datos.append('nit', nit.value.trim());
+    datos.append('nombre', nombre.value.trim());
+    datos.append('direccion', direccion.value.trim());
+    datos.append('telefono', telefono.value.trim());
+    if (!/^\d{1,10}$/.test(nit.value.trim())) {
+      estado.textContent = 'El NIT debe ser solo números (máximo 10).';
+      estado.className = 'error'; nit.focus(); return;
+    }
+    if (!nombre.value.trim() || !direccion.value.trim() || !telefono.value.trim()) {
+      estado.textContent = 'Nombre, dirección y teléfono son obligatorios.';
+      estado.className = 'error'; return;
+    }
+    guardar.disabled = true;
+    estado.className = 'sub';
+    estado.textContent = 'Guardando…';
+    fetch('/pedido/cliente-nuevo', { method: 'POST', body: datos })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) {
+          estado.className = 'error';
+          estado.textContent = d.error || 'No se pudo crear el cliente.';
+          return;
+        }
+        if (window.elegirCliente) window.elegirCliente(d.cliente);
+        estado.className = 'ok';
+        estado.textContent = d.aviso || 'Cliente listo.';
+        caja.style.display = 'none';
+        nit.value = nombre.value = direccion.value = telefono.value = '';
+      })
+      .catch(function (e) {
+        estado.className = 'error';
+        estado.textContent = 'No se pudo crear el cliente: ' + e.message;
+      })
+      .finally(function () { guardar.disabled = false; });
+  });
 })();
 </script>
 {% endif %}

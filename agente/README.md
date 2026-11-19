@@ -1,11 +1,13 @@
 # Conecta2 — Agente de A2 (Windows)
 
-El agente es el programa que corre en el PC donde está **A2**. Hace dos cosas:
+El agente es el programa que corre en el PC donde está **A2**. Hace tres cosas:
 
 - **Sube** al panel el catálogo, las existencias, los clientes, los autorizados, los vendedores
   y los precios de lista.
 - **Baja** los pedidos hechos en el panel y los **monta en A2** como pedidos
   (documento tipo 10), con su cliente y sus líneas.
+- **Crea en A2** los clientes que se registran desde el panel (botón
+  "Cliente nuevo"); si el NIT ya existe, usa el cliente que ya estaba.
 
 Es **un solo `.exe`**: trae Python y pyodbc adentro. Lo único que hay que
 instalar aparte, una sola vez, es el **driver DBISAM ODBC 4.29 de 32 bits**.

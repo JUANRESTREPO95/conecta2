@@ -116,8 +116,27 @@ CREATE TABLE IF NOT EXISTS clientes (
     codigo TEXT NOT NULL,
     nombre TEXT,
     nit TEXT,
+    rif TEXT,
+    direccion TEXT,
+    telefono TEXT,
     actualizado TEXT DEFAULT (datetime('now', 'localtime')),
     UNIQUE (empresa_id, codigo)
+);
+
+-- Clientes creados desde el pedido (cola que el agente inserta en A2)
+CREATE TABLE IF NOT EXISTS clientes_nuevos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+    codigo TEXT NOT NULL,                -- = NIT
+    nombre TEXT NOT NULL,
+    nit TEXT NOT NULL,
+    direccion TEXT,
+    telefono TEXT,
+    vendedor TEXT,                       -- código del vendedor que lo creó
+    estado TEXT NOT NULL DEFAULT 'pendiente',  -- pendiente|creado|duplicado|error
+    error TEXT,
+    creado TEXT DEFAULT (datetime('now', 'localtime')),
+    procesado TEXT
 );
 
 -- Autorizados de A2 (Sautorizados): direcciones que pertenecen a un cliente.
@@ -231,6 +250,9 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE pedidos ADD COLUMN intentos INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE pedidos ADD COLUMN uuid TEXT",
         "ALTER TABLE pedidos ADD COLUMN origen TEXT DEFAULT 'panel'",
+        "ALTER TABLE clientes ADD COLUMN direccion TEXT",
+        "ALTER TABLE clientes ADD COLUMN telefono TEXT",
+        "ALTER TABLE empresas ADD COLUMN usar_clientes_nuevos INTEGER DEFAULT 0",
     ):
         try:
             con.execute(alter)

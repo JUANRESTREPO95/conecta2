@@ -72,6 +72,12 @@
   <p class="sub" id="aviso-autorizados" style="display:none;margin-top:-6px">
     Los autorizados solo se pueden activar cuando Clientes está activado.
   </p>
+  <label>Crear clientes desde el pedido
+    <select name="usar_clientes_nuevos" id="usar_clientes_nuevos" onchange="mostrarClienteDefecto()">
+      <option value="1" {% if e.usar_clientes_nuevos %}selected{% endif %}>Activado: aparece el botón "Cliente nuevo"</option>
+      <option value="" {% if not e.usar_clientes_nuevos %}selected{% endif %}>Desactivado: solo se eligen clientes ya creados</option>
+    </select>
+  </label>
   <div id="caja-cliente-defecto" class="caja-cliente-defecto">
     <label>Cliente predeterminado (todo pedido sin cliente va a este)
       <input type="text" id="cp-buscar" placeholder="Escribe el nombre, código o NIT…"

@@ -802,15 +802,20 @@ def _guarda_clientes(empresa_id: int, lote: list) -> int:
                 continue
             con.execute(
                 "INSERT INTO clientes (empresa_id, codigo, nombre, nit, rif, "
-                "actualizado) VALUES (?, ?, ?, ?, ?, datetime('now','localtime')) "
+                "direccion, telefono, actualizado) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime')) "
                 "ON CONFLICT(empresa_id, codigo) DO UPDATE SET "
                 "nombre=excluded.nombre, nit=excluded.nit, rif=excluded.rif, "
+                "direccion=COALESCE(excluded.direccion, clientes.direccion), "
+                "telefono=COALESCE(excluded.telefono, clientes.telefono), "
                 "actualizado=excluded.actualizado "
                 "WHERE clientes.nombre IS NOT excluded.nombre "
                 "OR clientes.nit IS NOT excluded.nit "
-                "OR clientes.rif IS NOT excluded.rif",
+                "OR clientes.rif IS NOT excluded.rif "
+                "OR clientes.direccion IS NOT excluded.direccion "
+                "OR clientes.telefono IS NOT excluded.telefono",
                 (empresa_id, codigo, c.get("nombre"), c.get("nit"),
-                 c.get("rif")))
+                 c.get("rif"), c.get("direccion"), c.get("telefono")))
     return len(lote)
 
 
@@ -928,6 +933,93 @@ def clientes_buscar(request: Request, q: str = "", limite: int = 15):
         "ORDER BY nombre LIMIT ?",
         (empresa["id"], patron, patron, patron, limite))
     return {"items": [dict(f) for f in filas_cli]}
+
+
+@app.post("/pedido/cliente-nuevo")
+def pedido_cliente_nuevo(request: Request, nit: str = Form(""),
+                         nombre: str = Form(""), direccion: str = Form(""),
+                         telefono: str = Form("")):
+    """Crea un cliente desde el pedido (se inserta en A2 con el agente).
+
+    El cliente queda de una vez en el panel (para poder usarlo en el pedido) y
+    en una cola que el agente inserta en A2 en su siguiente ciclo. Si el NIT ya
+    existe se usa el cliente que ya está creado.
+    """
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return {"ok": False, "error": "Se cerró la sesión."}
+    empresa = empresa_del(usuario, None)
+    if empresa is None or not empresa["usar_clientes"] or \
+            not empresa["usar_clientes_nuevos"]:
+        return {"ok": False, "error": "Crear clientes no está habilitado."}
+    nit = str(nit or "").strip()
+    nombre = " ".join(str(nombre or "").split())
+    direccion = " ".join(str(direccion or "").split())
+    telefono = " ".join(str(telefono or "").split())
+    # el NIT es el código del cliente: solo números, máximo 10 (sin letras)
+    if not nit.isdigit() or not 1 <= len(nit) <= 10:
+        return {"ok": False, "error": "El NIT debe ser solo números (máximo 10)."}
+    if not nombre or not direccion or not telefono:
+        return {"ok": False, "error": "Nombre, dirección y teléfono son obligatorios."}
+    existente = db.fila(
+        "SELECT codigo, nombre, nit, rif FROM clientes WHERE empresa_id = ? "
+        "AND (codigo = ? OR nit = ?) LIMIT 1", (empresa["id"], nit, nit))
+    if existente is not None:
+        return {"ok": True, "nuevo": False, "cliente": dict(existente),
+                "aviso": "Ese NIT ya existe: se usa el cliente que ya estaba creado."}
+    try:
+        db.ejecutar(
+            "INSERT INTO clientes (empresa_id, codigo, nombre, nit, direccion, "
+            "telefono, actualizado) VALUES (?, ?, ?, ?, ?, ?, "
+            "datetime('now','localtime'))",
+            (empresa["id"], nit, nombre, nit, direccion, telefono))
+        db.ejecutar(
+            "INSERT INTO clientes_nuevos (empresa_id, codigo, nombre, nit, "
+            "direccion, telefono, vendedor) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (empresa["id"], nit, nombre, nit, direccion, telefono,
+             usuario["codigo"]))
+    except Exception:
+        # si otro lo creó en ese instante, se usa el existente
+        existente = db.fila(
+            "SELECT codigo, nombre, nit, rif FROM clientes WHERE empresa_id = ? "
+            "AND (codigo = ? OR nit = ?) LIMIT 1", (empresa["id"], nit, nit))
+        if existente is not None:
+            return {"ok": True, "nuevo": False, "cliente": dict(existente)}
+        return {"ok": False, "error": "No se pudo crear el cliente."}
+    return {"ok": True, "nuevo": True,
+            "cliente": {"codigo": nit, "nombre": nombre, "nit": nit},
+            "aviso": "Cliente creado. Se guardará en A2 en el próximo ciclo."}
+
+
+@app.get("/api/clientes/nuevos")
+def api_clientes_nuevos(request: Request):
+    """Clientes creados desde el pedido que el agente debe insertar en A2."""
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return Response('{"error": "token inválido"}', status_code=401,
+                        media_type="application/json")
+    filas = db.filas(
+        "SELECT id, codigo, nombre, nit, direccion, telefono, vendedor "
+        "FROM clientes_nuevos WHERE empresa_id = ? AND estado = 'pendiente' "
+        "ORDER BY id", (usuario["empresa_id"],))
+    return {"clientes": [dict(f) for f in filas]}
+
+
+@app.post("/api/clientes/nuevos/estado")
+def api_cliente_nuevo_estado(request: Request, id: int, estado: str,
+                             error: str = ""):
+    """El agente reporta si pudo insertar el cliente en A2."""
+    usuario = usuario_agente(request)
+    if usuario is None:
+        return Response('{"error": "token inválido"}', status_code=401,
+                        media_type="application/json")
+    if estado not in ("creado", "duplicado", "error"):
+        estado = "error"
+    db.ejecutar(
+        "UPDATE clientes_nuevos SET estado = ?, error = ?, "
+        "procesado = datetime('now','localtime') WHERE id = ? AND empresa_id = ?",
+        (estado, (error or "")[:500] or None, id, usuario["empresa_id"]))
+    return {"ok": True}
 
 
 @app.get("/autorizados/cliente")
@@ -1510,6 +1602,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        minimo: int = Form(0),
                        usar_clientes: str = Form(""),
                        usar_autorizados: str = Form(""),
+                       usar_clientes_nuevos: str = Form(""),
                        cliente_predeterminado: str = Form(""),
                        formato_numero: str = Form("{vendedor}-{anio}{numero}"),
                        reinicio_numero: str = Form("anual"),
@@ -1538,6 +1631,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     # los autorizados dependen de los clientes: sin clientes no hay autorizados
     usar_clientes_on = 1 if usar_clientes else 0
     usar_autorizados_on = 1 if (usar_clientes_on and usar_autorizados) else 0
+    # crear clientes depende de que los clientes estén activados
+    usar_clientes_nuevos_on = 1 if (usar_clientes_on and usar_clientes_nuevos) else 0
     # cliente predeterminado: se guarda el nombre/NIT/RIF del código elegido
     codigo_def = cliente_predeterminado.strip()
     nombre_def = nit_def = rif_def = None
@@ -1555,7 +1650,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "ocultar_agotados = ?, color_primario = ?, color_secundario = ?, "
                 "color_letra = ?, logo = ?, filtro_existencia = ?, "
                 "existencia_minima = ?, usar_clientes = ?, "
-                "usar_autorizados = ?, "
+                "usar_autorizados = ?, usar_clientes_nuevos = ?, "
                 "cliente_predeterminado_codigo = ?, "
                 "cliente_predeterminado_nombre = ?, "
                 "cliente_predeterminado_nit = ?, "
@@ -1564,7 +1659,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_primario, color_letra, logo,
                  filtro, max(0, minimo), usar_clientes_on,
-                 usar_autorizados_on,
+                 usar_autorizados_on, usar_clientes_nuevos_on,
                  codigo_def or None, nombre_def, nit_def, rif_def,
                  formato_numero.strip(), reinicio_numero, digitos_numero,
                  empresa_id))
