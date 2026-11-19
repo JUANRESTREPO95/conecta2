@@ -42,7 +42,9 @@ td.num, th.num { text-align: right; }
                 linear-gradient(90deg, var(--primario) 0 60%, var(--secundario) 60% 100%); }
 .marca { font-family: "Rubik", sans-serif; font-weight: 600; font-size: 1.25rem;
          display: flex; align-items: center; gap: .5rem; }
-.marca img { height: 34px; border-radius: 8px; background: #fff; padding: 2px; }
+/* el logo va sin fondo: los PNG con transparencia quedan sobrepuestos */
+.marca img { height: 34px; border-radius: 8px; background: transparent;
+             padding: 0; }
 .barra nav { display: flex; gap: .35rem; flex-wrap: wrap; }
 .barra nav a { color: #fff; opacity: .92; text-decoration: none; font-weight: 600;
                padding: .45rem .8rem; border-radius: 8px; transition: background .2s, opacity .2s; }
