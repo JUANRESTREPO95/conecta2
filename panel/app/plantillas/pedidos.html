@@ -34,7 +34,7 @@
     <td>{{ (p.referencia or "")[:30] }}</td>
     <td>{{ p.total | num }}</td>
     <td><span class="pill pill-{{ p.estado }}" id="pill-{{ p.id }}">{{ p.estado }}</span>
-        <small class="error" id="err-{{ p.id }}">{% if p.error_a2 %}{% if p.estado == 'pendiente' %}reintentando ({{ p.intentos or 0 }}): {% endif %}{{ (p.error_a2 or "")[:60] }}{% endif %}</small>
+        <small class="error" id="err-{{ p.id }}">{% if p.error_a2 and p.estado in ('pendiente', 'error') %}{% if p.estado == 'pendiente' %}reintentando ({{ p.intentos or 0 }}): {% endif %}{{ (p.error_a2 or "")[:60] }}{% endif %}</small>
         {% if p.montado %}<small class="sub" id="mont-{{ p.id }}"> · {{ p.montado }}</small>{% else %}<small class="sub" id="mont-{{ p.id }}"></small>{% endif %}</td>
     <td><a href="/pedidos/{{ p.id }}">Ver</a></td>
     <td>
@@ -82,9 +82,11 @@
             pill.textContent = p.estado;
           }
           var err = document.getElementById('err-' + p.id);
-          var textoError = p.error_a2
-            ? (p.estado === 'pendiente' ? 'reintentando (' + (p.intentos || 0) + '): ' : '')
-              + String(p.error_a2).slice(0, 60)
+          var textoError = (p.error_a2 &&
+              (p.estado === 'pendiente' || p.estado === 'error'))
+            ? ((p.estado === 'pendiente'
+                ? 'reintentando (' + (p.intentos || 0) + '): ' : '')
+                + String(p.error_a2).slice(0, 60))
             : '';
           if (err && err.textContent !== textoError) {
             err.textContent = textoError;

@@ -247,6 +247,9 @@ def esquema() -> None:  # crea tablas si faltan
     con.execute("UPDATE empresas SET filtro_existencia = "
                 "CASE WHEN ocultar_agotados = 1 THEN 'positivo' ELSE 'todo' END "
                 "WHERE filtro_existencia IS NULL")
+    # un pedido montado no debe conservar el error de un intento anterior
+    con.execute("UPDATE pedidos SET error_a2 = NULL, intentos = 0 "
+                "WHERE estado = 'montado'")
     # rellena una sola vez el código normalizado (búsqueda por tramos)
     if con.execute("SELECT COUNT(*) FROM productos WHERE codigo_busqueda IS NULL"
                    ).fetchone()[0]:

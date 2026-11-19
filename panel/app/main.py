@@ -1053,7 +1053,8 @@ def api_montado(request: Request, id: int, a2_autoincrement: int,
         return Response('{"error": "token inválido"}', status_code=401,
                         media_type="application/json")
     db.ejecutar("UPDATE pedidos SET estado = 'montado', montado = "
-                "datetime('now','localtime'), a2_autoincrement = ? WHERE id = ?",
+                "datetime('now','localtime'), a2_autoincrement = ?, "
+                "error_a2 = NULL, intentos = 0 WHERE id = ?",
                 (a2_autoincrement, id))
     return {"ok": True}
 
