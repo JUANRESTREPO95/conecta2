@@ -419,6 +419,7 @@ def app_datos(request: Request):
         "logo": empresa["logo"],
         "usar_clientes": empresa["usar_clientes"],
         "usar_autorizados": empresa["usar_autorizados"],
+        "usar_clientes_nuevos": empresa["usar_clientes_nuevos"],
         "deposito_modo": empresa["deposito_modo"],
         "filtro_existencia": empresa["filtro_existencia"],
         "existencia_minima": empresa["existencia_minima"],
@@ -436,6 +437,31 @@ def app_datos(request: Request):
         "clientes": clientes,
         "autorizados": autorizados,
     }
+
+
+@app.post("/api/app/cliente-nuevo")
+async def app_cliente_nuevo(request: Request):
+    """Crea un cliente desde la app (igual que en el panel web)."""
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    usuario = sesion_app(request, empresa["id"])
+    if usuario is None:
+        return _json_error("sesión inválida", 401)
+    if not empresa["usar_clientes"] or not empresa["usar_clientes_nuevos"]:
+        return _json_error("Crear clientes no está habilitado", 403)
+    try:
+        cuerpo = await request.json()
+    except Exception:
+        cuerpo = {}
+    if not isinstance(cuerpo, dict):
+        cuerpo = {}
+    return _crear_cliente(empresa["id"], usuario["codigo"],
+                          cuerpo.get("nit"), cuerpo.get("nombre"),
+                          cuerpo.get("direccion"), cuerpo.get("telefono"))
 
 
 @app.get("/api/app/mis-pedidos")
@@ -935,23 +961,12 @@ def clientes_buscar(request: Request, q: str = "", limite: int = 15):
     return {"items": [dict(f) for f in filas_cli]}
 
 
-@app.post("/pedido/cliente-nuevo")
-def pedido_cliente_nuevo(request: Request, nit: str = Form(""),
-                         nombre: str = Form(""), direccion: str = Form(""),
-                         telefono: str = Form("")):
-    """Crea un cliente desde el pedido (se inserta en A2 con el agente).
+def _crear_cliente(empresa_id: int, vendedor_codigo: str, nit: str,
+                   nombre: str, direccion: str, telefono: str) -> dict:
+    """Crea el cliente en el panel y en la cola para A2 (lo usan web y app).
 
-    El cliente queda de una vez en el panel (para poder usarlo en el pedido) y
-    en una cola que el agente inserta en A2 en su siguiente ciclo. Si el NIT ya
-    existe se usa el cliente que ya está creado.
+    Si el NIT ya existe no crea nada: devuelve el cliente que ya estaba.
     """
-    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
-    if usuario is None:
-        return {"ok": False, "error": "Se cerró la sesión."}
-    empresa = empresa_del(usuario, None)
-    if empresa is None or not empresa["usar_clientes"] or \
-            not empresa["usar_clientes_nuevos"]:
-        return {"ok": False, "error": "Crear clientes no está habilitado."}
     nit = str(nit or "").strip()
     nombre = " ".join(str(nombre or "").split())
     direccion = " ".join(str(direccion or "").split())
@@ -963,7 +978,7 @@ def pedido_cliente_nuevo(request: Request, nit: str = Form(""),
         return {"ok": False, "error": "Nombre, dirección y teléfono son obligatorios."}
     existente = db.fila(
         "SELECT codigo, nombre, nit, rif FROM clientes WHERE empresa_id = ? "
-        "AND (codigo = ? OR nit = ?) LIMIT 1", (empresa["id"], nit, nit))
+        "AND (codigo = ? OR nit = ?) LIMIT 1", (empresa_id, nit, nit))
     if existente is not None:
         return {"ok": True, "nuevo": False, "cliente": dict(existente),
                 "aviso": "Ese NIT ya existe: se usa el cliente que ya estaba creado."}
@@ -972,23 +987,39 @@ def pedido_cliente_nuevo(request: Request, nit: str = Form(""),
             "INSERT INTO clientes (empresa_id, codigo, nombre, nit, direccion, "
             "telefono, actualizado) VALUES (?, ?, ?, ?, ?, ?, "
             "datetime('now','localtime'))",
-            (empresa["id"], nit, nombre, nit, direccion, telefono))
+            (empresa_id, nit, nombre, nit, direccion, telefono))
         db.ejecutar(
             "INSERT INTO clientes_nuevos (empresa_id, codigo, nombre, nit, "
             "direccion, telefono, vendedor) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (empresa["id"], nit, nombre, nit, direccion, telefono,
-             usuario["codigo"]))
+            (empresa_id, nit, nombre, nit, direccion, telefono,
+             vendedor_codigo))
     except Exception:
         # si otro lo creó en ese instante, se usa el existente
         existente = db.fila(
             "SELECT codigo, nombre, nit, rif FROM clientes WHERE empresa_id = ? "
-            "AND (codigo = ? OR nit = ?) LIMIT 1", (empresa["id"], nit, nit))
+            "AND (codigo = ? OR nit = ?) LIMIT 1", (empresa_id, nit, nit))
         if existente is not None:
             return {"ok": True, "nuevo": False, "cliente": dict(existente)}
         return {"ok": False, "error": "No se pudo crear el cliente."}
     return {"ok": True, "nuevo": True,
             "cliente": {"codigo": nit, "nombre": nombre, "nit": nit},
             "aviso": "Cliente creado. Se guardará en A2 en el próximo ciclo."}
+
+
+@app.post("/pedido/cliente-nuevo")
+def pedido_cliente_nuevo(request: Request, nit: str = Form(""),
+                         nombre: str = Form(""), direccion: str = Form(""),
+                         telefono: str = Form("")):
+    """Crea un cliente desde el pedido del panel web."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return {"ok": False, "error": "Se cerró la sesión."}
+    empresa = empresa_del(usuario, None)
+    if empresa is None or not empresa["usar_clientes"] or \
+            not empresa["usar_clientes_nuevos"]:
+        return {"ok": False, "error": "Crear clientes no está habilitado."}
+    return _crear_cliente(empresa["id"], usuario["codigo"], nit, nombre,
+                          direccion, telefono)
 
 
 @app.get("/api/clientes/nuevos")
