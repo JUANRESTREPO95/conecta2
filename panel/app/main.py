@@ -158,8 +158,13 @@ def primer_vez_post(request: Request, codigo: str = Form(...), nombre: str = For
 
 # ---------- login ----------
 
-def _icono_png(tamano: int = 180) -> bytes:
-    """Ícono del sitio: logo de la empresa o monograma sobre su color."""
+def _icono_png(tamano: int = 180, fondo: bool = True) -> bytes:
+    """Ícono del sitio: logo de la empresa o monograma.
+
+    Con `fondo=True` lleva el color de la empresa (para el ícono del iPhone,
+    que no admite transparencia). Con `fondo=False` va transparente, así en la
+    pestaña se ve solo el logo y no un cuadro de color.
+    """
     import io as _io
     from PIL import Image, ImageDraw, ImageFont
 
@@ -167,17 +172,30 @@ def _icono_png(tamano: int = 180) -> bytes:
     color = (empresa["color_primario"] if empresa else "#1e40af") or "#1e40af"
     color = color.lstrip("#")
     rgb = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
-    img = Image.new("RGBA", (tamano, tamano), rgb + (255,))
-    d = ImageDraw.Draw(img)
     logo_bytes = None
     if empresa:
         try:
-            from app.hoja import _logo_bytes as _logo
-            logo_bytes = _logo(dict(empresa), alto_px=int(tamano * 0.62))
+            from app.hoja import _logo_bytes as _Logo
+            logo_bytes = _Logo(dict(empresa), alto_px=int(tamano * 0.82))
         except Exception:
             logo_bytes = None
+    # sin logo el monograma necesita el color de fondo para verse
+    if not fondo and logo_bytes is None:
+        fondo = True
+    img = Image.new("RGBA", (tamano, tamano),
+                    (rgb + (255,)) if fondo else (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
     if logo_bytes:
-        lg = Image.open(_io.BytesIO(logo_bytes))
+        lg = Image.open(_io.BytesIO(logo_bytes)).convert("RGBA")
+        # recorta el aire transparente para que el logo quede centrado
+        caja = lg.getbbox()
+        if caja:
+            lg = lg.crop(caja)
+        limite = max(1, int(tamano * 0.88))
+        if lg.width > limite or lg.height > limite:
+            factor = min(limite / lg.width, limite / lg.height)
+            lg = lg.resize((max(1, int(lg.width * factor)),
+                            max(1, int(lg.height * factor))))
         x = (tamano - lg.width) // 2
         y = (tamano - lg.height) // 2
         img.paste(lg, (x, y), lg)
@@ -193,8 +211,15 @@ def _icono_png(tamano: int = 180) -> bytes:
                 (tamano - (caja[3] - caja[1])) / 2 - caja[1]),
                texto, font=fuente, fill="white")
     buf = _io.BytesIO()
-    img.convert("RGB").save(buf, "PNG")
+    (img.convert("RGB") if fondo else img).save(buf, "PNG")
     return buf.getvalue()
+
+
+@app.get("/favicon.png")
+def favicon():
+    """Icono de la pestaña: el logo solo, sin el cuadro de color."""
+    return Response(_icono_png(64, fondo=False), media_type="image/png",
+                    headers={"Cache-Control": "max-age=3600"})
 
 
 @app.get("/apple-touch-icon.png")
