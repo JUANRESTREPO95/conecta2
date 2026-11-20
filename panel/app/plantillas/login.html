@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block contenido %}
+<div class="login-pantalla">
 <div id="login-caja">
   {% if logo %}<img class="login-logo" src="{{ logo }}" alt="{{ nombre_negocio }}">{% endif %}
   <h1>Conecta2</h1>
@@ -15,5 +16,6 @@
     </label>
     <button type="submit">Entrar</button>
   </form>
+</div>
 </div>
 {% endblock %}

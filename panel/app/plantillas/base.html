@@ -20,6 +20,8 @@
   </style>
 </head>
 <body>
+  {# en el login no va la barra: el logo y el nombre ya están en el cuadro #}
+  {% if request.url.path != '/login' %}
   <header class="barra">
     <div class="marca">{% if logo %}<img src="{{ logo }}" alt="">{% endif %}<span>{{ nombre_negocio }}</span></div>
     {% if usuario %}
@@ -40,6 +42,7 @@
     </nav>
     {% endif %}
   </header>
+  {% endif %}
   <main>
     {% block contenido %}{% endblock %}
   </main>

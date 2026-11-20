@@ -144,6 +144,10 @@ textarea { font: inherit; }
 .acciones button.rojo:hover { background: #b91c1c; border-color: #b91c1c; }
 
 /* ---- login ---- */
+/* el login va sin barra: el cuadro queda centrado en la pantalla */
+.login-pantalla { min-height: calc(100vh - 2.5rem); display: flex;
+  align-items: center; justify-content: center; }
+.login-pantalla #login-caja { margin: 0; width: 100%; }
 #login-caja { max-width: 420px; margin: 3rem auto; background: #fff;
   padding: 2rem 2.25rem; border-radius: 16px; border: 2px solid var(--borde);
   box-shadow: var(--sombra); }
