@@ -5,9 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ nombre_negocio }} — Conecta2</title>
   <link rel="stylesheet" href="/estaticos/panel.css">
-  {# ?v=logo hace que el navegador no guarde el favicon viejo al cambiar el logo #}
+  {# el ?v=logo evita que el navegador use el favicon viejo al cambiar el logo #}
   <link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{ (logo or 'base') | urlencode }}">
-  <link rel="icon" type="image/png" href="/favicon.png?v={{ (logo or 'base') | urlencode }}">
+  {% if logo %}
+  <link rel="icon" type="image/png" href="/favicon.png?v={{ logo | urlencode }}">
+  {% else %}
+  {# sin logo no se muestra icono en la pestaña #}
+  <link rel="icon" href="data:,">
+  {% endif %}
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="{{ color_primario }}">
   <style>

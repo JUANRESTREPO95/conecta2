@@ -176,7 +176,7 @@ def _icono_png(tamano: int = 180, fondo: bool = True) -> bytes:
     if empresa:
         try:
             from app.hoja import _logo_bytes as _Logo
-            logo_bytes = _Logo(dict(empresa), alto_px=int(tamano * 0.82))
+            logo_bytes = _Logo(dict(empresa), alto_px=int(tamano))
         except Exception:
             logo_bytes = None
     # sin logo el monograma necesita el color de fondo para verse
@@ -191,7 +191,8 @@ def _icono_png(tamano: int = 180, fondo: bool = True) -> bytes:
         caja = lg.getbbox()
         if caja:
             lg = lg.crop(caja)
-        limite = max(1, int(tamano * 0.88))
+        # en la pestaña el logo va a todo el cuadro (sin margen)
+        limite = max(1, int(tamano * (0.88 if fondo else 1.0)))
         if lg.width > limite or lg.height > limite:
             factor = min(limite / lg.width, limite / lg.height)
             lg = lg.resize((max(1, int(lg.width * factor)),
