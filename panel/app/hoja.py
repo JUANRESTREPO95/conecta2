@@ -56,8 +56,11 @@ def _logo_bytes(empresa: dict, alto_px: int = 80):
         from app import config
         local = config.LOGOS / ruta[len("/logos/"):]
         if local.is_file():
+            # en Linux/Docker esta ruta empieza por "/" (no es una URL)
             ruta = str(local)
-    if ruta.startswith("/") or ruta.startswith("http"):
+        else:
+            return None
+    if ruta.startswith("http"):
         return None
     if os.path.isfile(ruta):
         with open(ruta, "rb") as fh:
