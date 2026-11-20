@@ -148,6 +148,9 @@ textarea { font: inherit; }
   padding: 2rem 2.25rem; border-radius: 16px; border: 2px solid var(--borde);
   box-shadow: var(--sombra); }
 #login-caja h1 { margin-bottom: .2rem; }
+/* logo de la empresa arriba del título (solo si la empresa tiene logo) */
+.login-logo { display: block; margin: 0 auto .9rem; max-height: 84px;
+  max-width: 80%; object-fit: contain; }
 
 /* ---- celular: la tabla se desplaza dentro de su marco ---- */
 @media (max-width: 640px) {

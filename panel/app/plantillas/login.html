@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block contenido %}
 <div id="login-caja">
+  {% if logo %}<img class="login-logo" src="{{ logo }}" alt="{{ nombre_negocio }}">{% endif %}
   <h1>Conecta2</h1>
   <p class="sub">{{ nombre_negocio }}</p>
   {% if request.query_params.get('error') %}<p class="error">Código o clave incorrectos.</p>{% endif %}

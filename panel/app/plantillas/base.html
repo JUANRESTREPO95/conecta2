@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ nombre_negocio }} — Conecta2</title>
   <link rel="stylesheet" href="/estaticos/panel.css">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="icon" type="image/png" href="/apple-touch-icon.png">
+  {# ?v=logo hace que el navegador no guarde el favicon viejo al cambiar el logo #}
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{ (logo or 'base') | urlencode }}">
+  <link rel="icon" type="image/png" href="/apple-touch-icon.png?v={{ (logo or 'base') | urlencode }}">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="{{ color_primario }}">
   <style>
