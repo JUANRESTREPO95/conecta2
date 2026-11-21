@@ -11,3 +11,6 @@ __pycache__/
 .git/
 *.log
 README.md
+
+# código y APK de la app: no entran al build de Docker
+apk/

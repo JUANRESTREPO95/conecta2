@@ -1,0 +1,143 @@
+import 'package:material_ui/material_ui.dart';
+
+import '../state.dart';
+
+class SetupScreen extends StatefulWidget {
+  const SetupScreen({super.key});
+
+  @override
+  State<SetupScreen> createState() => _SetupScreenState();
+}
+
+class _SetupScreenState extends State<SetupScreen> {
+  final _url = TextEditingController();
+  final _token = TextEditingController();
+  bool _cargando = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _token.dispose();
+    super.dispose();
+  }
+
+  Future<void> _conectar() async {
+    setState(() {
+      _cargando = true;
+      _error = null;
+    });
+    try {
+      await appState.configurar(_url.text, _token.text);
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _cargando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final aviso = _error ?? appState.mensajeInicio;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Conectar panel')),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 78,
+                      height: 78,
+                      decoration: BoxDecoration(
+                        color: appState.colorPrimario,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: const Icon(Icons.shopping_bag,
+                          color: Colors.white, size: 44),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Text('Conecta2',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 6),
+                  Text('Configura el panel de tu empresa',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                  const SizedBox(height: 28),
+                  TextField(
+                    controller: _url,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'URL del panel',
+                      hintText: 'https://pedidos.col.lt',
+                      prefixIcon: Icon(Icons.link),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _token,
+                    obscureText: true,
+                    autocorrect: false,
+                    textCapitalization: TextCapitalization.none,
+                    keyboardType: TextInputType.visiblePassword,
+                    decoration: const InputDecoration(
+                      labelText: 'Token de la app',
+                      hintText: 'Pégalo desde Apps en el panel',
+                      prefixIcon: Icon(Icons.key),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'El token se genera en el panel, en Apps. '
+                    'Solo se muestra una vez.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 22),
+                  if (aviso != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(aviso,
+                          style: const TextStyle(color: Color(0xFF9A3412))),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  FilledButton(
+                    onPressed: _cargando ? null : _conectar,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: _cargando
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Conectar y descargar datos'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
