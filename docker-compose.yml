@@ -10,6 +10,8 @@ services:
       dockerfile: docker/Dockerfile
     # una sola imagen compartida por todos los paneles
     image: ${CONECTA2_IMAGEN:-conecta2:latest}
+    image: ${CONECTA2_IMAGEN:-conecta2:latest}
+    pull_policy: build
     # nombre distinto por stack (varias empresas en el mismo servidor)
     container_name: ${CONECTA2_CONTENEDOR:-conecta2}
     restart: unless-stopped
