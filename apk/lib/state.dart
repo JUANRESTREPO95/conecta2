@@ -37,6 +37,8 @@ class AppState extends ChangeNotifier {
   bool appRevocada = false;
   bool sesionVencida = false;
   bool modoConfig = false;
+  /// Sección visible después del login: 'menu', 'pedidos' o 'cartera'.
+  String seccion = 'menu';
   String? mensajeInicio;
   String paso = 'Iniciando…';
   int _generacion = 0;
@@ -91,6 +93,23 @@ class AppState extends ChangeNotifier {
     final ultima = ultimaSyncOk;
     if (ultima == null) return false;
     return DateTime.now().difference(ultima).inHours < 72;
+  }
+
+  // ---------- navegación principal ----------
+
+  void irAlMenu() {
+    seccion = 'menu';
+    notifyListeners();
+  }
+
+  void irAPedidos() {
+    seccion = 'pedidos';
+    notifyListeners();
+  }
+
+  void irACartera() {
+    seccion = 'cartera';
+    notifyListeners();
   }
 
   Future<void> init() async {
@@ -464,6 +483,7 @@ class AppState extends ChangeNotifier {
     sesionVencida = false;
     online = true;
     modoConfig = false;
+    seccion = 'menu';
     notifyListeners();
     await procesarCola();
   }
@@ -526,12 +546,14 @@ class AppState extends ChangeNotifier {
     sesion ??= await _seguro('sesion');
     api?.sesion = sesion;
     online = false;
+    seccion = 'menu';
     notifyListeners();
   }
 
   Future<void> cerrarSesion() async {
     _generacion++;
     modoConfig = false;
+    seccion = 'menu';
     usuarioCodigo = null;
     usuarioNombre = null;
     usuarioRol = null;
