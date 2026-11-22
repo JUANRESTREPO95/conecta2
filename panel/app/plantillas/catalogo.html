@@ -27,12 +27,12 @@
       <td>{{ p.codigo }}</td><td>{{ p.descripcion }}</td>
         <td>{{ p.precio | num }}</td><td>{{ p.existencia | num }}</td>
         <td class="col-agregar">
-          <span class="en-pedido" data-codigo="{{ p.codigo }}">{% if carrito_map.get(p.codigo) %}En pedido: {{ carrito_map.get(p.codigo) }}{% endif %}</span>
           <form method="post" action="/pedido/agregar" class="inline" id="f-{{ p.codigo }}">
             <input type="hidden" name="codigo" value="{{ p.codigo }}">
             <input type="number" name="cantidad" value="1" min="1" step="1" class="mini">
             <button type="button" class="mini-menos" title="Quitar del pedido">−</button>
             <button type="submit" title="Agregar al pedido">＋</button>
+            <span class="en-pedido" data-codigo="{{ p.codigo }}">{% if carrito_map.get(p.codigo) %}En pedido: {{ carrito_map.get(p.codigo) }}{% endif %}</span>
           </form>
         </td></tr>
     {% else %}
@@ -81,13 +81,14 @@
            '" data-existencia="' + (p.existencia === null || p.existencia === undefined ? '' : p.existencia) +
            '"><td>' + p.codigo + '</td><td>' + esc(p.descripcion) + '</td><td>' + forma(p.precio) +
            '</td><td>' + forma(p.existencia) +
-           '</td><td class="col-agregar"><span class="en-pedido" data-codigo="' + esc(p.codigo) + '">' +
-           (mapaCarrito[p.codigo] ? 'En pedido: ' + mapaCarrito[p.codigo] : '') +
-           '</span><form method="post" action="/pedido/agregar" class="inline">' +
+           '</td><td class="col-agregar"><form method="post" action="/pedido/agregar" class="inline">' +
            '<input type="hidden" name="codigo" value="' + p.codigo + '">' +
            '<input type="number" name="cantidad" value="1" min="1" step="1" class="mini">' +
            '<button type="button" class="mini-menos" title="Quitar del pedido">−</button>' +
-           '<button type="submit" title="Agregar al pedido">＋</button></form></td></tr>';
+           '<button type="submit" title="Agregar al pedido">＋</button>' +
+           '<span class="en-pedido" data-codigo="' + esc(p.codigo) + '">' +
+           (mapaCarrito[p.codigo] ? 'En pedido: ' + mapaCarrito[p.codigo] : '') +
+           '</span></form></td></tr>';
   }
 
   // ---- agregar al pedido sin salir del catálogo ----
