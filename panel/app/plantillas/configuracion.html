@@ -134,14 +134,98 @@
       </label>
       <p class="sub">Con este color se distingue Cartera de Pedidos en la barra
         superior, también al abrir Vendedores, Apps o Configuración desde Cartera.</p>
-      <p class="sub">Los ajustes propios de Cartera (por ejemplo, qué saldos
-        mostrar) se agregarán en esta columna.</p>
+
+      <label>Enlace de la hoja de Google (solo lectura)
+        <input name="cartera_url" id="cartera-url" value="{{ e.cartera_url or '' }}"
+               placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off">
+      </label>
+      <p class="sub" style="margin-top:-2px">En Google: Archivo → Compartir →
+        Publicar en la web → CSV. También sirve el enlace normal de edición.</p>
+      <button type="button" class="btn-neutro" id="cartera-traer">Traer columnas</button>
+      <span class="sub" id="cartera-aviso"></span>
+
+      <p class="sub" style="margin:.9rem 0 .2rem">Columnas que se muestran en Cartera</p>
+      <div class="cartera-columnas" id="cartera-columnas">
+        {% for c in columnas_hoja %}
+        <label>
+          <input type="checkbox" name="cartera_columnas" value="{{ c }}"
+                 {% if (not columnas_guardadas) or (c in columnas_guardadas) %}checked{% endif %}>
+          {{ c }}
+        </label>
+        {% endfor %}
+      </div>
+      <label>Columna del vendedor (separa lo que ve cada uno)
+        <select name="cartera_columna_vendedor" id="cartera-col-vendedor">
+          <option value="">Detectar por el nombre "Vendedor"</option>
+          {% for c in columnas_hoja %}
+          <option value="{{ c }}" {% if e.cartera_columna_vendedor == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="sub">El vendedor solo verá las filas donde esta columna
+        coincida con su código o su nombre de A2. Admin y super ven todo.</p>
     </div>
   </div>
 
   <button type="submit" style="margin-top:1.4rem">Guardar</button>
 </form>
 
+<script>
+(function () {
+  var boton = document.getElementById('cartera-traer');
+  if (!boton) return;
+  var entrada = document.getElementById('cartera-url');
+  var aviso = document.getElementById('cartera-aviso');
+  var caja = document.getElementById('cartera-columnas');
+  var select = document.getElementById('cartera-col-vendedor');
+  var guardadas = {{ columnas_guardadas | tojson }};
+  var guardadoVendedor = {{ (e.cartera_columna_vendedor or '') | tojson }};
+
+  function esc(v) {
+    return String(v || '').replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function pintar(columnas, vendedor) {
+    var todas = !guardadas.length;      // sin selección guardada se muestran todas
+    var html = '';
+    var opciones = '<option value="">Detectar por el nombre "Vendedor"</option>';
+    for (var i = 0; i < columnas.length; i++) {
+      var nombre = esc(columnas[i]);
+      var marcada = todas || guardadas.indexOf(columnas[i]) !== -1;
+      html += '<label><input type="checkbox" name="cartera_columnas" value="' +
+              nombre + '"' + (marcada ? ' checked' : '') + '> ' + nombre + '</label>';
+      opciones += '<option value="' + nombre + '">' + nombre + '</option>';
+    }
+    caja.innerHTML = html;
+    select.innerHTML = opciones;
+    if (vendedor) select.value = vendedor;
+    else if (guardadoVendedor) select.value = guardadoVendedor;
+  }
+  boton.addEventListener('click', function () {
+    var enlace = (entrada.value || '').trim();
+    if (!enlace) {
+      aviso.textContent = 'Escribe el enlace de la hoja primero.';
+      return;
+    }
+    aviso.textContent = 'Trayendo columnas…';
+    var datos = new FormData();
+    datos.append('url', enlace);
+    fetch('/configuracion/cartera/columnas', { method: 'POST', body: datos })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) {
+          aviso.textContent = d.mensaje || 'No se pudo leer la hoja.';
+          return;
+        }
+        pintar(d.columnas || [], d.vendedor || '');
+        aviso.textContent = (d.columnas || []).length + ' columnas, ' +
+          d.filas + ' filas. Elige las que quieras y guarda.';
+      })
+      .catch(function () { aviso.textContent = 'No se pudo leer la hoja.'; });
+  });
+})();
+</script>
 <script>
 function mostrarMinimo() {
   var m = document.getElementById('filtro').value;

@@ -3,6 +3,7 @@
 Multi-empresa. Roles: super (global), admin (por empresa), vendedor.
 El super usuario se crea en el primer arranque, en /primer-vez.
 """
+import json
 from datetime import datetime
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -12,7 +13,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import a2, config, db, hoja, seguridad
+from app import a2, cartera_hoja, config, db, hoja, seguridad
 
 db.esquema()  # garantiza el esquema también cuando uvicorn recarga en modo dev
 
@@ -1323,12 +1324,45 @@ def inicio(request: Request):
 
 @app.get("/cartera")
 def cartera(request: Request):
-    """Apartado de Cartera (por ahora sin datos; se conectará al panel)."""
-    try:
-        protege(request)
-    except Redirige:
+    """Cartera desde la hoja de Google configurada para la empresa.
+
+    Admin y super ven toda la cartera; el vendedor solo sus filas (columna
+    del vendedor) y nunca puede forzar la actualización.
+    """
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    return respuesta(request, "cartera.html", {})
+    pedir = request.query_params.get("empresa")
+    empresa_id = None
+    if pedir:
+        try:
+            empresa_id = int(pedir)
+        except ValueError:
+            empresa_id = None
+    if empresa_id and usuario["rol"] == "super":
+        fija_empresa_activa(usuario, empresa_id)
+    empresa = empresa_del(usuario, empresa_id)
+    if empresa is None:
+        return respuesta(request, "cartera.html", {"sin_empresa": True})
+    puede_actualizar = usuario["rol"] in ("super", "admin")
+    forzar = puede_actualizar and request.query_params.get("actualizar") == "1"
+    estado = cartera_hoja.obtener(empresa, forzar)
+    datos = estado["datos"]
+    columnas, filas = [], []
+    if datos:
+        indices = cartera_hoja.indices_visibles(empresa, datos["columnas"])
+        columnas = [datos["columnas"][i] for i in indices]
+        for fila in cartera_hoja.filas_para(usuario, empresa, datos):
+            filas.append([fila[i] if i < len(fila) else "" for i in indices])
+    return respuesta(request, "cartera.html", {
+        "empresa": empresa, "sin_empresa": False,
+        "columnas": columnas, "filas": filas,
+        "actualizado": estado["actualizado"], "error": estado["error"],
+        "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
+        "hay_vendedor_col": bool(datos) and cartera_hoja.indice_vendedor(
+            empresa, datos["columnas"]) >= 0,
+        "puede_actualizar": puede_actualizar,
+    })
 
 
 # ---------- empresas (solo super) ----------
@@ -1708,9 +1742,19 @@ def configuracion(request: Request):
     if pedir:
         fija_empresa_activa(usuario, int(pedir))
     empresa = empresa_del(usuario, pedir and int(pedir))
+    # columnas de la hoja de Cartera: las últimas que se descargaron, para
+    # poder elegirlas sin volver a consultar Google al abrir esta página
+    columnas_hoja, columnas_guardadas = [], []
+    if empresa is not None:
+        columnas_guardadas = cartera_hoja.columnas_guardadas(empresa)
+        guardado = cartera_hoja.cache(empresa["id"])
+        if guardado["datos"]:
+            columnas_hoja = guardado["datos"]["columnas"]
     return respuesta(request, "configuracion.html",
                      {"e": empresa, **datos_empresas(),
-                      "volver": "/configuracion"})
+                      "volver": "/configuracion",
+                      "columnas_hoja": columnas_hoja,
+                      "columnas_guardadas": columnas_guardadas})
 
 
 def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> tuple[str, str]:
@@ -1760,11 +1804,15 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        cliente_predeterminado: str = Form(""),
                        formato_numero: str = Form("{vendedor}-{anio}{numero}"),
                        reinicio_numero: str = Form("anual"),
-                       digitos_numero: int = Form(4)):
+                       digitos_numero: int = Form(4),
+                       cartera_url: str = Form(""),
+                       cartera_columnas: list[str] = Form([]),
+                       cartera_columna_vendedor: str = Form("")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    actual = db.fila("SELECT logo FROM empresas WHERE id = ?", (empresa_id,))
+    actual = db.fila("SELECT logo, cartera_url FROM empresas WHERE id = ?",
+                     (empresa_id,))
     logo = (actual or {"logo": None})["logo"]
     if quitar_logo:
         logo = None
@@ -1776,6 +1824,23 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
         subido, error_logo = guardar_logo(empresa_id, logo_file)
     if subido:
         logo = subido
+    # enlace de la hoja de Cartera: se guarda ya convertido a descarga CSV
+    url_previa = ((actual["cartera_url"] if actual else "") or "").strip()
+    cartera_destino = (cartera_url or "").strip()
+    error_cartera = ""
+    if cartera_destino:
+        normalizado = cartera_hoja.url_csv(cartera_destino)
+        if normalizado:
+            cartera_destino = normalizado
+        else:
+            cartera_destino = url_previa
+            error_cartera = "El enlace de Cartera debe empezar con https://"
+    columnas_cartera = [c.strip() for c in (cartera_columnas or []) if c.strip()]
+    if cartera_destino != url_previa:
+        cartera_hoja.borrar_cache(empresa_id)
+        if not columnas_cartera:
+            # hoja nueva y sin columnas marcadas: la del vendedor ya no aplica
+            cartera_columna_vendedor = ""
     # la barra usa el color principal; ya no se pide un color aparte
     if filtro not in ("todo", "positivo", "personalizado"):
         filtro = "todo"
@@ -1815,22 +1880,46 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "cliente_predeterminado_nombre = ?, "
                 "cliente_predeterminado_nit = ?, "
                 "cliente_predeterminado_rif = ?, formato_numero = ?, "
-                "reinicio_numero = ?, digitos_numero = ? WHERE id = ?",
+                "reinicio_numero = ?, digitos_numero = ?, cartera_url = ?, "
+                "cartera_columnas = ?, cartera_columna_vendedor = ? "
+                "WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_cartera, color_primario, color_letra, logo,
                  filtro, max(0, minimo), usar_clientes_on,
                  usar_autorizados_on, usar_clientes_nuevos_on,
                  codigo_def or None, nombre_def, nit_def, rif_def,
                  formato_numero.strip(), reinicio_numero, digitos_numero,
+                 cartera_destino or None,
+                 json.dumps(columnas_cartera, ensure_ascii=False),
+                 (cartera_columna_vendedor or "").strip() or None,
                  empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
-    if error_logo:
-        # el resto de la configuración sí se guardó; se avisa del logo
+    if error_logo or error_cartera:
+        # el resto de la configuración sí se guardó; se avisa de lo que falló
         import urllib.parse
         return RedirectResponse(
-            f"/configuracion?empresa={empresa_id}&error={urllib.parse.quote(error_logo)}",
+            f"/configuracion?empresa={empresa_id}"
+            f"&error={urllib.parse.quote(error_logo or error_cartera)}",
             status_code=303)
     return RedirectResponse(f"/configuracion?ok=1&empresa={empresa_id}", status_code=303)
+
+
+@app.post("/configuracion/cartera/columnas")
+def configuracion_cartera_columnas(request: Request, url: str = Form("")):
+    """Lee los títulos de la hoja de Cartera para poder elegir las columnas."""
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return {"ok": False, "mensaje": "Solo el super usuario puede cambiar esto."}
+    destino = cartera_hoja.url_csv(url)
+    if not destino:
+        return {"ok": False, "mensaje": "El enlace debe empezar con https://"}
+    try:
+        datos = cartera_hoja.parsear(cartera_hoja.descargar(destino))
+    except Exception as e:                                  # noqa: BLE001
+        return {"ok": False, "mensaje": cartera_hoja.mensaje_error(e)}
+    return {"ok": True, "columnas": datos["columnas"],
+            "vendedor": cartera_hoja.nombre_vendedor(datos["columnas"]),
+            "filas": len(datos["filas"])}
 
 
 # ---------- catálogo ----------
@@ -1963,8 +2052,6 @@ def catalogo_buscar(request: Request, q: str = "", limite: int = 100):
 
 
 # ---------- pedidos ----------
-
-import json
 
 
 def empresa_carrito(usuario):
@@ -2113,10 +2200,10 @@ def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: str = F
     carrito = carrito_obtener(usuario)
     texto = (cantidad or "").strip().replace(",", ".")
     if not texto:
-        cantidad = 0
+        numero = 0
     else:
         try:
-            cantidad = int(float(texto))
+            numero = int(float(texto))
         except ValueError:
             if es_fetch:
                 return {"ok": False, "mensaje": "Cantidad no válida.",
@@ -2126,7 +2213,7 @@ def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: str = F
     item = next((i for i in carrito if i["codigo"] == codigo), None)
     tope = False
     disponible = 0
-    if cantidad <= 0:
+    if numero <= 0:
         carrito = [i for i in carrito if i["codigo"] != codigo]
     else:
         producto = db.fila(
@@ -2144,8 +2231,8 @@ def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: str = F
             carrito = [i for i in carrito if i["codigo"] != codigo]
             tope = True
         else:
-            nueva = min(cantidad, disponible)
-            tope = nueva < cantidad
+            nueva = min(numero, disponible)
+            tope = nueva < numero
             if item is not None:
                 item["cantidad"] = nueva
             else:

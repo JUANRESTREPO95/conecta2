@@ -199,6 +199,15 @@ CREATE TABLE IF NOT EXISTS consecutivos (
     ultimo INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (empresa_id, vendedor_id, anio)
 );
+
+-- Cartera: copia de la hoja de Google publicada (una por empresa)
+-- datos guarda {"columnas": [...], "filas": [[...], ...]}
+CREATE TABLE IF NOT EXISTS cartera (
+    empresa_id INTEGER PRIMARY KEY REFERENCES empresas(id),
+    datos TEXT,
+    actualizado TEXT,
+    error TEXT
+);
 """
 
 
@@ -259,6 +268,9 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE clientes ADD COLUMN telefono TEXT",
         "ALTER TABLE empresas ADD COLUMN usar_clientes_nuevos INTEGER DEFAULT 0",
         "ALTER TABLE app_tokens ADD COLUMN token_visible TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_url TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_columnas TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_columna_vendedor TEXT",
     ):
         try:
             con.execute(alter)

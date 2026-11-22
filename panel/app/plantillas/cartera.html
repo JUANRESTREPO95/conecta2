@@ -1,12 +1,96 @@
 {% extends "base.html" %}
 {% block contenido %}
-<h1>Cartera</h1>
-<p class="sub">Saldos de tus clientes.</p>
+<h1>Cartera{% if empresa %} — {{ empresa.nombre }}{% endif %}</h1>
+{% if sin_empresa %}
+<p class="error">Aún no hay empresas configuradas.</p>
+{% elif not hay_enlace %}
 <div class="caja">
-  <p style="margin:0"><strong>Próximamente.</strong></p>
+  <p style="margin:0"><strong>Aún no hay cartera configurada.</strong></p>
   <p class="sub" style="margin:.4rem 0 0">
-    Aquí se mostrará la cartera de los clientes. Los datos se conectarán
-    con el panel cuando definamos qué información de cartera se va a manejar.
+    {% if usuario.rol == 'super' %}
+    Pega el enlace de la hoja de Google en
+    <a href="/configuracion">Configuración</a> (columna Cartera).
+    {% else %}
+    El super usuario debe configurar el enlace de la hoja de cartera.
+    {% endif %}
   </p>
 </div>
+{% else %}
+<p class="sub">
+  {% if actualizado %}Actualizado: {{ actualizado }}{% endif %}
+  {% if puede_actualizar %} — <a href="/cartera?actualizar=1">Actualizar ahora</a>{% endif %}
+  — {{ filas|length }} registro{{ '' if filas|length == 1 else 's' }}
+  {%- if usuario.rol == 'vendedor' %} de tu cartera{% endif %}
+</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if usuario.rol == 'vendedor' and not hay_vendedor_col %}
+<p class="error">La cartera todavía no está separada por vendedor. Pídele al
+  administrador que configure la columna del vendedor en Configuración.</p>
+{% endif %}
+{% if not columnas %}
+<div class="caja"><p class="sub" style="margin:0">La hoja no tiene columnas para mostrar.</p></div>
+{% elif not filas %}
+<div class="caja"><p class="sub" style="margin:0">
+  {% if usuario.rol == 'vendedor' %}
+  No hay registros para tu vendedor en la cartera. Si deberías tener, avísale
+  al administrador para revisar cómo aparece tu nombre en la hoja.
+  {% else %}
+  No hay registros para mostrar.
+  {% endif %}
+</p></div>
+{% else %}
+<input id="cartera-filtro" class="cartera-filtro" autocomplete="off"
+       placeholder="Filtrar por cliente, documento, vendedor…">
+<div class="cartera-marco">
+  <table class="cartera-tabla">
+    <thead><tr>{% for c in columnas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody id="cartera-filas">
+    {% for f in filas %}
+      <tr>{% for v in f %}<td>{{ v }}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="sub" id="cartera-cuenta">{{ filas|length }} registro{{ '' if filas|length == 1 else 's' }}.</p>
+<script>
+(function () {
+  var entrada = document.getElementById('cartera-filtro');
+  var cuerpo = document.getElementById('cartera-filas');
+  if (!entrada || !cuerpo) return;
+  var cuenta = document.getElementById('cartera-cuenta');
+  var filas = Array.prototype.slice.call(cuerpo.rows);
+  var total = filas.length;
+  // mayúsculas y sin tildes, para que "Perez" encuentre "Pérez"
+  function normal(t) {
+    var n = String(t || '').normalize('NFD');
+    var salida = '';
+    for (var i = 0; i < n.length; i++) {
+      var codigo = n.charCodeAt(i);
+      if (codigo < 0x0300 || codigo > 0x036f) salida += n.charAt(i);
+    }
+    return salida.toUpperCase();
+  }
+  var textos = filas.map(function (f) { return normal(f.textContent); });
+  function filtrar() {
+    var q = normal(entrada.value.trim());
+    var visibles = 0;
+    for (var i = 0; i < filas.length; i++) {
+      var ver = !q || textos[i].indexOf(q) !== -1;
+      filas[i].style.display = ver ? '' : 'none';
+      if (ver) visibles++;
+    }
+    if (cuenta) {
+      cuenta.textContent = visibles + ' de ' + total + ' registro' +
+        (total === 1 ? '' : 's') + '.';
+    }
+  }
+  var temporizador = null;
+  entrada.addEventListener('input', function () {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(filtrar, 120);
+  });
+})();
+</script>
+{% endif %}
+{% endif %}
 {% endblock %}

@@ -288,3 +288,25 @@ input.mini::placeholder { color: #94a3b8; font-weight: 600; }
 table.tabla-catalogo form.inline button { min-width: 38px; height: 34px;
   padding: 0 8px; font-size: 1rem; line-height: 1; border-radius: 8px;
   display: inline-flex; align-items: center; justify-content: center; }
+
+/* ---- cartera: filtro y tabla de la hoja ---- */
+.cartera-filtro { display: block; width: 100%; margin: .3rem 0 .8rem;
+  padding: .65rem .9rem; border: 2px solid #d7cfc9; border-radius: 10px;
+  font: inherit; background: #fff; }
+.cartera-filtro:focus { outline: none; border-color: var(--primario);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primario) 25%, #fff); }
+.cartera-marco { background: #fff; border: 2px solid var(--borde);
+  border-radius: 14px; overflow-x: auto; }
+.cartera-tabla { border: 0; border-radius: 0; }
+.cartera-tabla th, .cartera-tabla td { white-space: nowrap; }
+
+/* ---- configuración: columnas de la hoja de cartera ---- */
+.cartera-columnas { display: grid; grid-template-columns: 1fr 1fr;
+  gap: 2px 14px; margin: 0 0 10px; }
+.cartera-columnas label { display: flex; align-items: center; gap: 6px;
+  margin: 0; font-weight: 500; font-size: .9rem; }
+.cartera-columnas input[type="checkbox"] { width: 18px; height: 18px;
+  padding: 0; margin: 0; display: inline-block; flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .cartera-columnas { grid-template-columns: 1fr; }
+}
