@@ -29,10 +29,10 @@
         <td class="col-agregar">
           <form method="post" action="/pedido/agregar" class="inline" id="f-{{ p.codigo }}">
             <input type="hidden" name="codigo" value="{{ p.codigo }}">
-            <input type="number" name="cantidad" value="1" min="1" step="1" class="mini">
-            <button type="button" class="mini-menos" title="Quitar del pedido">−</button>
-            <button type="submit" title="Agregar al pedido">＋</button>
-            <span class="en-pedido" data-codigo="{{ p.codigo }}">{% if carrito_map.get(p.codigo) %}En pedido: {{ carrito_map.get(p.codigo) }}{% endif %}</span>
+            <input type="number" name="cantidad" min="0" step="1" class="mini"
+                   placeholder="0" value="{{ carrito_map.get(p.codigo) or '' }}">
+            <button type="button" class="mini-menos" title="Quitar uno del pedido">−</button>
+            <button type="submit" title="Agregar uno al pedido">＋</button>
           </form>
         </td></tr>
     {% else %}
@@ -55,13 +55,16 @@
   var resumen = document.getElementById('resumen');
   var resumenBase = resumen ? resumen.textContent : '';
   var temporizador = null;
+  var temporizadorCantidad = null;
+  var avisoCantidad = '';
   var filasIniciales = document.getElementById('filas').innerHTML;
   var mapaCarrito = {};
   (function () {
-    var spans = document.querySelectorAll('.en-pedido');
-    for (var i = 0; i < spans.length; i++) {
-      var m = spans[i].textContent.match(/(\d+)/);
-      if (m) mapaCarrito[spans[i].getAttribute('data-codigo')] = parseInt(m[1], 10);
+    var filas = document.querySelectorAll('#filas tr[data-codigo]');
+    for (var i = 0; i < filas.length; i++) {
+      var inp = filas[i].querySelector('input[name="cantidad"]');
+      var n = inp ? parseInt(inp.value, 10) : 0;
+      if (n > 0) mapaCarrito[filas[i].getAttribute('data-codigo')] = n;
     }
   })();
 
@@ -83,57 +86,75 @@
            '</td><td>' + forma(p.existencia) +
            '</td><td class="col-agregar"><form method="post" action="/pedido/agregar" class="inline">' +
            '<input type="hidden" name="codigo" value="' + p.codigo + '">' +
-           '<input type="number" name="cantidad" value="1" min="1" step="1" class="mini">' +
-           '<button type="button" class="mini-menos" title="Quitar del pedido">−</button>' +
-           '<button type="submit" title="Agregar al pedido">＋</button>' +
-           '<span class="en-pedido" data-codigo="' + esc(p.codigo) + '">' +
-           (mapaCarrito[p.codigo] ? 'En pedido: ' + mapaCarrito[p.codigo] : '') +
-           '</span></form></td></tr>';
+           '<input type="number" name="cantidad" min="0" step="1" class="mini" placeholder="0" value="' +
+           (mapaCarrito[p.codigo] || '') + '">' +
+           '<button type="button" class="mini-menos" title="Quitar uno del pedido">−</button>' +
+           '<button type="submit" title="Agregar uno al pedido">＋</button>' +
+           '</form></td></tr>';
   }
 
   // ---- agregar al pedido sin salir del catálogo ----
   function actualizarCarrito(d) {
+    if (!d || d.carrito_n === undefined) return;
     var caja = document.getElementById('carrito-flotante');
     if (!caja) { window.location = '/pedido'; return; }
     document.getElementById('carrito-monto').textContent = forma(d.carrito_monto);
     if (d.carrito_map) mapaCarrito = d.carrito_map;
     caja.style.display = d.carrito_n ? '' : 'none';
-    pintarEnPedido();
+    actualizarCajas();
   }
-  function pintarEnPedido() {
-    var spans = document.querySelectorAll('.en-pedido');
-    for (var i = 0; i < spans.length; i++) {
-      var n = mapaCarrito[spans[i].getAttribute('data-codigo')] || 0;
-      spans[i].textContent = n ? ('En pedido: ' + n) : '';
+  // el recuadro de cada fila refleja la cantidad que hay en el pedido
+  function actualizarCajas() {
+    var filas = document.querySelectorAll('#filas tr[data-codigo]');
+    for (var i = 0; i < filas.length; i++) {
+      var inp = filas[i].querySelector('input[name="cantidad"]');
+      if (!inp || document.activeElement === inp) continue;
+      var n = mapaCarrito[filas[i].getAttribute('data-codigo')] || 0;
+      inp.value = n > 0 ? n : '';
     }
   }
-  function agregar(codigo, cantidad) {
+  // el botón + y el − parten de lo que muestre el recuadro (igual que la app)
+  function ajustar(codigo, delta, inp) {
+    clearTimeout(temporizadorCantidad);
+    var base = inp ? parseInt(inp.value, 10) : NaN;
+    if (isNaN(base)) base = mapaCarrito[codigo] || 0;
+    var objetivo = base + delta;
+    if (objetivo < 0) objetivo = 0;
+    return fijar(codigo, objetivo);
+  }
+  // fija la cantidad exacta escrita en el recuadro (0 o vacío = fuera del pedido)
+  function fijar(codigo, valor) {
     var cuerpoForm = new FormData();
     cuerpoForm.append('codigo', codigo);
-    cuerpoForm.append('cantidad', cantidad);
-    return fetch('/pedido/agregar', {
+    cuerpoForm.append('cantidad', valor === '' ? 0 : valor);
+    return fetch('/pedido/cantidad', {
       method: 'POST', body: cuerpoForm,
       headers: { 'X-Requested-With': 'fetch' }
     }).then(function (r) { return r.json(); }).then(function (d) {
-      if (!d.ok) {
-        if (aviso) aviso.textContent = d.mensaje || 'No hay existencia suficiente.';
-        actualizarCarrito(d);
+      if (!d || d.ok === false) {
+        avisoCantidad = (d && d.mensaje) || 'No se pudo actualizar la cantidad.';
+        if (aviso) aviso.textContent = avisoCantidad;
+        actualizarCarrito(d || {});
         return;
       }
-      if (d.tope && aviso) {
-        aviso.textContent = d.mensaje || 'Solo se agregó hasta la existencia disponible.';
+      // no borrar el aviso de la búsqueda: solo se limpia el de la cantidad
+      if (aviso) {
+        if (d.mensaje) {
+          avisoCantidad = d.mensaje;
+          aviso.textContent = d.mensaje;
+        } else if (aviso.textContent === avisoCantidad) {
+          avisoCantidad = '';
+          aviso.textContent = '';
+        }
       }
       actualizarCarrito(d);
     });
   }
-  function restar(codigo, cantidad) {
-    var cuerpoForm = new FormData();
-    cuerpoForm.append('codigo', codigo);
-    cuerpoForm.append('cantidad', cantidad);
-    return fetch('/pedido/restar', {
-      method: 'POST', body: cuerpoForm,
-      headers: { 'X-Requested-With': 'fetch' }
-    }).then(function (r) { return r.json(); }).then(actualizarCarrito);
+  function codigoDeFila(elemento) {
+    var f = elemento.closest ? elemento.closest('form') : null;
+    if (!f) return null;
+    var inp = f.querySelector('input[name="codigo"]');
+    return inp ? inp.value : null;
   }
 
   entrada.addEventListener('input', function () {
@@ -145,7 +166,7 @@
     var q = entrada.value.trim();
     if (!q) {
       document.getElementById('filas').innerHTML = filasIniciales;
-      pintarEnPedido();
+      actualizarCajas();
       if (aviso) aviso.textContent = '';
       if (pag) pag.style.display = '';
       if (resumen) resumen.textContent = resumenBase;
@@ -166,7 +187,7 @@
         var html = '';
         for (var i = 0; i < d.items.length; i++) html += fila(d.items[i]);
         tbody.innerHTML = html;
-        pintarEnPedido();
+        actualizarCajas();
         if (aviso) aviso.textContent =
           (d.total > d.items.length)
             ? 'Mostrando ' + d.items.length + ' de ' + d.total + ' — sigue escribiendo o presiona Entra para verlos paginados.'
@@ -183,8 +204,8 @@
     if (!f || f.getAttribute('action').indexOf('/pedido/agregar') === -1) return;
     e.preventDefault();
     var codigo = f.querySelector('input[name="codigo"]').value;
-    var cantidad = f.querySelector('input[name="cantidad"]').value || 1;
-    agregar(codigo, cantidad).catch(function () { f.submit(); });
+    ajustar(codigo, 1, f.querySelector('input[name="cantidad"]'))
+      .catch(function () { f.submit(); });
   });
   cuerpo.addEventListener('click', function (e) {
     var b = (e.target && e.target.closest) ? e.target.closest('button.mini-menos') : null;
@@ -193,8 +214,37 @@
     var f = b.closest('form');
     if (!f) return;
     var codigo = f.querySelector('input[name="codigo"]').value;
-    var cantidad = f.querySelector('input[name="cantidad"]').value || 1;
-    restar(codigo, cantidad).catch(function () {});
+    ajustar(codigo, -1, f.querySelector('input[name="cantidad"]'))
+      .catch(function () {});
+  });
+  // escribir en el recuadro fija la cantidad en el pedido (con una pausa corta)
+  cuerpo.addEventListener('input', function (e) {
+    var inp = e.target;
+    if (!inp || inp.name !== 'cantidad') return;
+    var codigo = codigoDeFila(inp);
+    if (!codigo) return;
+    var valor = inp.value;
+    clearTimeout(temporizadorCantidad);
+    temporizadorCantidad = setTimeout(function () { fijar(codigo, valor).catch(function () {}); }, 350);
+  });
+  // al salir del recuadro se aplica de una vez
+  cuerpo.addEventListener('change', function (e) {
+    var inp = e.target;
+    if (!inp || inp.name !== 'cantidad') return;
+    var codigo = codigoDeFila(inp);
+    if (!codigo) return;
+    clearTimeout(temporizadorCantidad);
+    fijar(codigo, inp.value).catch(function () {});
+  });
+  // Enter en el recuadro aplica la cantidad (no agrega uno)
+  cuerpo.addEventListener('keydown', function (e) {
+    var inp = e.target;
+    if (!inp || inp.name !== 'cantidad' || e.key !== 'Enter') return;
+    e.preventDefault();
+    var codigo = codigoDeFila(inp);
+    if (!codigo) return;
+    clearTimeout(temporizadorCantidad);
+    fijar(codigo, inp.value).catch(function () {});
   });
 
 })();

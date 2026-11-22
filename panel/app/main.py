@@ -2099,23 +2099,70 @@ def pedido_restar(request: Request, codigo: str = Form(...), cantidad: float = F
 
 
 @app.post("/pedido/cantidad")
-def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: float = Form(1)):
+def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: str = Form("1")):
+    """Fija la cantidad exacta de un producto (0 o vacío lo saca del carrito)."""
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
+    es_fetch = request.headers.get("x-requested-with") == "fetch"
     empresa = empresa_del(usuario, None)
     if empresa is None:
+        if es_fetch:
+            return {"ok": False, "mensaje": "No hay empresa activa."}
         return RedirectResponse("/pedido", status_code=303)
     carrito = carrito_obtener(usuario)
-    cantidad = int(cantidad or 0)
+    texto = (cantidad or "").strip().replace(",", ".")
+    if not texto:
+        cantidad = 0
+    else:
+        try:
+            cantidad = int(float(texto))
+        except ValueError:
+            if es_fetch:
+                return {"ok": False, "mensaje": "Cantidad no válida.",
+                        **resumen_carrito(carrito),
+                        "carrito_map": mapa_carrito(carrito)}
+            return RedirectResponse("/pedido", status_code=303)
     item = next((i for i in carrito if i["codigo"] == codigo), None)
-    if item is not None:
+    tope = False
+    disponible = 0
+    if cantidad <= 0:
+        carrito = [i for i in carrito if i["codigo"] != codigo]
+    else:
+        producto = db.fila(
+            "SELECT codigo, descripcion, precio FROM productos "
+            "WHERE empresa_id = ? AND codigo = ? AND internet = 1 AND activo = 1",
+            (empresa["id"], codigo))
+        if producto is None:
+            if es_fetch:
+                return {"ok": False, "mensaje": "Producto no disponible.",
+                        **resumen_carrito(carrito),
+                        "carrito_map": mapa_carrito(carrito)}
+            return RedirectResponse("/pedido", status_code=303)
         disponible = int(existencia_visible(empresa, codigo))
-        if cantidad <= 0 or disponible <= 0:
+        if disponible <= 0:
             carrito = [i for i in carrito if i["codigo"] != codigo]
+            tope = True
         else:
-            item["cantidad"] = min(cantidad, disponible)
+            nueva = min(cantidad, disponible)
+            tope = nueva < cantidad
+            if item is not None:
+                item["cantidad"] = nueva
+            else:
+                carrito.append({"codigo": producto["codigo"],
+                                "descripcion": producto["descripcion"],
+                                "precio": producto["precio"],
+                                "cantidad": nueva})
     carrito_guardar(usuario, carrito)
+    if es_fetch:
+        respuesta = {"ok": True, **resumen_carrito(carrito),
+                     "carrito_map": mapa_carrito(carrito)}
+        if tope:
+            respuesta["tope"] = True
+            respuesta["mensaje"] = (
+                f"Solo hay {disponible} en existencia." if disponible > 0
+                else "No hay existencia de este producto.")
+        return respuesta
     return RedirectResponse("/pedido", status_code=303)
 
 
