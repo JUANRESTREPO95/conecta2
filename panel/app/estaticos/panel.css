@@ -278,3 +278,12 @@ textarea { width: 100%; height: 96px; min-height: 96px; max-height: 96px;
 @media (max-width: 640px) {
   .menu-secciones { grid-template-columns: 1fr; }
 }
+
+/* ---- catálogo: "En pedido" y botón de quitar ---- */
+.en-pedido { display: block; font-size: .78rem; font-weight: 700;
+  color: var(--primario); margin-bottom: 2px; }
+.en-pedido:empty { display: none; }
+button.mini-menos { background: #fff; color: var(--texto, #0f172a);
+  border: 2px solid #d7cfc9; padding: .35rem .6rem; margin: 0; }
+button.mini-menos:hover { background: color-mix(in srgb, var(--primario) 10%, #fff);
+  border-color: var(--primario); }

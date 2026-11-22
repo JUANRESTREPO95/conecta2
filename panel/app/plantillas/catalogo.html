@@ -27,9 +27,11 @@
       <td>{{ p.codigo }}</td><td>{{ p.descripcion }}</td>
         <td>{{ p.precio | num }}</td><td>{{ p.existencia | num }}</td>
         <td class="col-agregar">
+          <span class="en-pedido" data-codigo="{{ p.codigo }}">{% if carrito_map.get(p.codigo) %}En pedido: {{ carrito_map.get(p.codigo) }}{% endif %}</span>
           <form method="post" action="/pedido/agregar" class="inline" id="f-{{ p.codigo }}">
             <input type="hidden" name="codigo" value="{{ p.codigo }}">
             <input type="number" name="cantidad" value="1" min="1" step="1" class="mini">
+            <button type="button" class="mini-menos" title="Quitar del pedido">−</button>
             <button type="submit" title="Agregar al pedido">＋</button>
           </form>
         </td></tr>
@@ -54,6 +56,14 @@
   var resumenBase = resumen ? resumen.textContent : '';
   var temporizador = null;
   var filasIniciales = document.getElementById('filas').innerHTML;
+  var mapaCarrito = {};
+  (function () {
+    var spans = document.querySelectorAll('.en-pedido');
+    for (var i = 0; i < spans.length; i++) {
+      var m = spans[i].textContent.match(/(\d+)/);
+      if (m) mapaCarrito[spans[i].getAttribute('data-codigo')] = parseInt(m[1], 10);
+    }
+  })();
 
   function forma(v) {
     if (v === null || v === undefined || v === '') return '—';
@@ -71,9 +81,12 @@
            '" data-existencia="' + (p.existencia === null || p.existencia === undefined ? '' : p.existencia) +
            '"><td>' + p.codigo + '</td><td>' + esc(p.descripcion) + '</td><td>' + forma(p.precio) +
            '</td><td>' + forma(p.existencia) +
-           '</td><td class="col-agregar"><form method="post" action="/pedido/agregar" class="inline">' +
+           '</td><td class="col-agregar"><span class="en-pedido" data-codigo="' + esc(p.codigo) + '">' +
+           (mapaCarrito[p.codigo] ? 'En pedido: ' + mapaCarrito[p.codigo] : '') +
+           '</span><form method="post" action="/pedido/agregar" class="inline">' +
            '<input type="hidden" name="codigo" value="' + p.codigo + '">' +
            '<input type="number" name="cantidad" value="1" min="1" step="1" class="mini">' +
+           '<button type="button" class="mini-menos" title="Quitar del pedido">−</button>' +
            '<button type="submit" title="Agregar al pedido">＋</button></form></td></tr>';
   }
 
@@ -81,8 +94,17 @@
   function actualizarCarrito(d) {
     var caja = document.getElementById('carrito-flotante');
     if (!caja) { window.location = '/pedido'; return; }
-    caja.style.display = '';
     document.getElementById('carrito-monto').textContent = forma(d.carrito_monto);
+    if (d.carrito_map) mapaCarrito = d.carrito_map;
+    caja.style.display = d.carrito_n ? '' : 'none';
+    pintarEnPedido();
+  }
+  function pintarEnPedido() {
+    var spans = document.querySelectorAll('.en-pedido');
+    for (var i = 0; i < spans.length; i++) {
+      var n = mapaCarrito[spans[i].getAttribute('data-codigo')] || 0;
+      spans[i].textContent = n ? ('En pedido: ' + n) : '';
+    }
   }
   function agregar(codigo, cantidad) {
     var cuerpoForm = new FormData();
@@ -103,6 +125,15 @@
       actualizarCarrito(d);
     });
   }
+  function restar(codigo, cantidad) {
+    var cuerpoForm = new FormData();
+    cuerpoForm.append('codigo', codigo);
+    cuerpoForm.append('cantidad', cantidad);
+    return fetch('/pedido/restar', {
+      method: 'POST', body: cuerpoForm,
+      headers: { 'X-Requested-With': 'fetch' }
+    }).then(function (r) { return r.json(); }).then(actualizarCarrito);
+  }
 
   entrada.addEventListener('input', function () {
     clearTimeout(temporizador);
@@ -113,6 +144,7 @@
     var q = entrada.value.trim();
     if (!q) {
       document.getElementById('filas').innerHTML = filasIniciales;
+      pintarEnPedido();
       if (aviso) aviso.textContent = '';
       if (pag) pag.style.display = '';
       if (resumen) resumen.textContent = resumenBase;
@@ -129,9 +161,11 @@
           if (aviso) aviso.textContent = '';
           return;
         }
+        if (d.carrito_map) mapaCarrito = d.carrito_map;
         var html = '';
         for (var i = 0; i < d.items.length; i++) html += fila(d.items[i]);
         tbody.innerHTML = html;
+        pintarEnPedido();
         if (aviso) aviso.textContent =
           (d.total > d.items.length)
             ? 'Mostrando ' + d.items.length + ' de ' + d.total + ' — sigue escribiendo o presiona Entra para verlos paginados.'
@@ -150,6 +184,16 @@
     var codigo = f.querySelector('input[name="codigo"]').value;
     var cantidad = f.querySelector('input[name="cantidad"]').value || 1;
     agregar(codigo, cantidad).catch(function () { f.submit(); });
+  });
+  cuerpo.addEventListener('click', function (e) {
+    var b = (e.target && e.target.closest) ? e.target.closest('button.mini-menos') : null;
+    if (!b) return;
+    e.preventDefault();
+    var f = b.closest('form');
+    if (!f) return;
+    var codigo = f.querySelector('input[name="codigo"]').value;
+    var cantidad = f.querySelector('input[name="cantidad"]').value || 1;
+    restar(codigo, cantidad).catch(function () {});
   });
 
 })();

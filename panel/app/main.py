@@ -125,15 +125,21 @@ def resumen_carrito(carrito: list) -> dict:
             "carrito_monto": monto, "carrito_items": len(carrito)}
 
 
+def mapa_carrito(carrito: list) -> dict:
+    """Cantidad en el carrito por código de producto."""
+    return {i["codigo"]: int(i["cantidad"]) for i in carrito}
+
+
 def datos_carrito(usuario) -> dict:
     """Artículos y monto del carrito del usuario (para el indicador flotante)."""
     if usuario is None or not usuario["carrito"]:
-        return {"carrito_n": 0, "carrito_monto": 0.0, "carrito_items": 0}
+        return {"carrito_n": 0, "carrito_monto": 0.0, "carrito_items": 0,
+                "carrito_map": {}}
     try:
         carrito = json.loads(usuario["carrito"] or "[]")
     except Exception:
         carrito = []
-    return resumen_carrito(carrito)
+    return {**resumen_carrito(carrito), "carrito_map": mapa_carrito(carrito)}
 
 
 def respuesta(request: Request, plantilla: str, contexto: dict):
@@ -1947,15 +1953,16 @@ def catalogo_buscar(request: Request, q: str = "", limite: int = 100):
     """Búsqueda dinámica para el catálogo (se consulta mientras se escribe)."""
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
     if usuario is None:
-        return {"items": [], "total": 0, "sin_sesion": True}
+        return {"items": [], "total": 0, "sin_sesion": True, "carrito_map": {}}
     empresa = empresa_del(usuario, request.query_params.get("empresa") and
                           int(request.query_params["empresa"]))
     if empresa is None:
-        return {"items": [], "total": 0}
+        return {"items": [], "total": 0, "carrito_map": {}}
     condicion, valores, orden, orden_valores = condicion_catalogo(empresa, q)
     total = db.fila(f"SELECT COUNT(*) AS c FROM productos p WHERE {condicion}", tuple(valores))["c"]
     items = productos_de(empresa, condicion, valores, limite, 0, orden, orden_valores)
-    return {"total": total, "items": items}
+    return {"total": total, "items": items,
+            "carrito_map": mapa_carrito(carrito_obtener(usuario))}
 
 
 # ---------- pedidos ----------
@@ -2023,7 +2030,8 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
         if request.headers.get("x-requested-with") == "fetch":
             return {"ok": False,
                     "mensaje": "No hay existencia suficiente de este producto.",
-                    **resumen_carrito(carrito)}
+                    **resumen_carrito(carrito),
+                    "carrito_map": mapa_carrito(carrito)}
         return RedirectResponse("/catalogo?aviso=sin_stock", status_code=303)
     sumar = min(cantidad, disponible - actual)
     for item in carrito:
@@ -2035,12 +2043,33 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
                         "precio": producto["precio"], "cantidad": sumar})
     carrito_guardar(usuario, carrito)
     if request.headers.get("x-requested-with") == "fetch":
-        respuesta = {"ok": True, **resumen_carrito(carrito)}
+        respuesta = {"ok": True, **resumen_carrito(carrito),
+                     "carrito_map": mapa_carrito(carrito)}
         if sumar < cantidad:
             respuesta["tope"] = True
             respuesta["mensaje"] = f"Solo hay {disponible} en existencia."
         return respuesta
     return RedirectResponse("/pedido", status_code=303)
+
+
+@app.post("/pedido/restar")
+def pedido_restar(request: Request, codigo: str = Form(...), cantidad: float = Form(1)):
+    """Quita unidades de un producto desde el catálogo (botón −)."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    cantidad = max(1, int(cantidad or 1))
+    carrito = carrito_obtener(usuario)
+    item = next((i for i in carrito if i["codigo"] == codigo), None)
+    if item is not None:
+        item["cantidad"] -= cantidad
+        if item["cantidad"] <= 0:
+            carrito = [i for i in carrito if i["codigo"] != codigo]
+    carrito_guardar(usuario, carrito)
+    if request.headers.get("x-requested-with") == "fetch":
+        return {"ok": True, **resumen_carrito(carrito),
+                "carrito_map": mapa_carrito(carrito)}
+    return RedirectResponse("/catalogo", status_code=303)
 
 
 @app.post("/pedido/cantidad")
