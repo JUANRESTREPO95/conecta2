@@ -1432,8 +1432,15 @@ def apps(request: Request, empresa: int | None = None):
         return RedirectResponse("/inicio", status_code=303)
     lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
                      "ORDER BY id DESC", (emp["id"],))
+    # los tokens de la app solo los ve el super usuario; el admin sigue
+    # viéndolos únicamente al crearlos
+    tokens = {}
+    if usuario["rol"] == "super":
+        tokens = {a["id"]: seguridad.descifrar_clave(a["token_visible"] or "")
+                  for a in lista}
     return respuesta(request, "apps.html",
-                     {"e": emp, "apps": lista, "token_nuevo": None})
+                     {"e": emp, "apps": lista, "token_nuevo": None,
+                      "tokens": tokens})
 
 
 @app.post("/apps/crear")
@@ -1449,13 +1456,19 @@ def apps_crear(request: Request, empresa_id: int = Form(...),
         return RedirectResponse("/apps?error=permiso", status_code=303)
     token = _secrets.token_urlsafe(32)
     huella = "app$" + hashlib.sha256(token.encode()).hexdigest()
-    db.ejecutar("INSERT INTO app_tokens (empresa_id, nombre, token_hash) "
-                "VALUES (?, ?, ?)",
-                (emp["id"], nombre.strip() or "Teléfono", huella))
+    db.ejecutar("INSERT INTO app_tokens (empresa_id, nombre, token_hash, "
+                "token_visible) VALUES (?, ?, ?, ?)",
+                (emp["id"], nombre.strip() or "Teléfono", huella,
+                 seguridad.cifrar_clave(token)))
     lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
                      "ORDER BY id DESC", (emp["id"],))
+    tokens = {}
+    if usuario["rol"] == "super":
+        tokens = {a["id"]: seguridad.descifrar_clave(a["token_visible"] or "")
+                  for a in lista}
     return respuesta(request, "apps.html",
-                     {"e": emp, "apps": lista, "token_nuevo": token})
+                     {"e": emp, "apps": lista, "token_nuevo": token,
+                      "tokens": tokens})
 
 
 def _volver_apps(usuario, empresa) -> RedirectResponse:

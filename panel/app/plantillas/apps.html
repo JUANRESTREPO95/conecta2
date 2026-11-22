@@ -14,12 +14,13 @@
 
 {% if token_nuevo %}
 <div class="caja" style="border-color:#16a34a">
-  <p class="ok"><strong>Token de la app — se muestra una sola vez</strong></p>
+  <p class="ok"><strong>Token de la app — guárdalo</strong></p>
   <p><input id="token-nuevo" readonly value="{{ token_nuevo }}"
             style="width:100%;font-family:Consolas,monospace" onclick="this.select()"></p>
   <button type="button" onclick="copiarToken()">Copiar token</button>
-  <p class="sub">Pégalo en la app en el primer arranque. Si se pierde, elimina
-    esta app y crea otra.</p>
+  <p class="sub">Pégalo en la app en el primer arranque.
+    {% if usuario.rol == 'super' %}Como super usuario también lo verás en la
+    lista de abajo.{% else %}Si se pierde, elimina esta app y crea otra.{% endif %}</p>
 </div>
 {% endif %}
 
@@ -35,7 +36,9 @@
 
 <table>
   <thead><tr><th>Nombre</th><th>Estado</th><th>Creada</th>
-    <th>Último uso</th><th></th></tr></thead>
+    <th>Último uso</th>
+    {% if usuario.rol == 'super' %}<th>Token</th>{% endif %}
+    <th></th></tr></thead>
   <tbody>
   {% for a in apps %}
   <tr>
@@ -43,6 +46,18 @@
     <td><span class="pill">{{ "activa" if a.activo else "revocada" }}</span></td>
     <td>{{ a.creado or "—" }}</td>
     <td>{{ a.ultimo_uso or "—" }}</td>
+    {% if usuario.rol == 'super' %}
+    <td>
+      {% if tokens.get(a.id) %}
+      <input id="tokapp-{{ a.id }}" readonly value="{{ tokens.get(a.id) }}"
+             style="width: 180px; font-family: Consolas, monospace; font-size: 11px"
+             onclick="this.select()">
+      <button type="button" onclick="copiarApp({{ a.id }}, this)">Copiar</button>
+      {% else %}
+      <span class="sub">no disponible — renuévalo</span>
+      {% endif %}
+    </td>
+    {% endif %}
     <td>
       {% if a.activo %}
       <form method="post" action="/apps/revocar" class="inline">
@@ -66,7 +81,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="5">Todavía no hay apps para esta empresa.</td></tr>
+  <tr><td colspan="{{ 6 if usuario.rol == 'super' else 5 }}">Todavía no hay apps para esta empresa.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -74,6 +89,11 @@
 <p class="sub">Revocar o eliminar corta las descargas y los envíos de esa app.
   Los datos que ya estén guardados en el teléfono no se pueden borrar desde
   aquí; la app deja de funcionar cuando intenta reconectar.</p>
+{% if usuario.rol == 'super' %}
+<p class="sub">Solo el super usuario ve estos tokens. Los que se crearon antes
+  de esta versión no se pueden recuperar: si necesitas uno, elimina esa app y
+  crea otra.</p>
+{% endif %}
 
 <script>
 function copiarToken() {
@@ -82,6 +102,17 @@ function copiarToken() {
   campo.select();
   if (navigator.clipboard) { navigator.clipboard.writeText(campo.value); }
   else { document.execCommand('copy'); }
+}
+function copiarApp(id, boton) {
+  var campo = document.getElementById('tokapp-' + id);
+  if (!campo) return;
+  campo.select();
+  if (navigator.clipboard) { navigator.clipboard.writeText(campo.value); }
+  else { document.execCommand('copy'); }
+  if (!boton) return;
+  var t = boton.textContent;
+  boton.textContent = '¡Copiado!';
+  setTimeout(function () { boton.textContent = t; }, 1200);
 }
 </script>
 {% endblock %}

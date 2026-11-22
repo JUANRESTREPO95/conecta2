@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS app_tokens (
     empresa_id INTEGER NOT NULL REFERENCES empresas(id),
     nombre TEXT NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
+    token_visible TEXT,                 -- cifrado reversible; solo lo ve el super
     activo INTEGER NOT NULL DEFAULT 1,
     creado TEXT DEFAULT (datetime('now', 'localtime')),
     ultimo_uso TEXT
@@ -257,6 +258,7 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE clientes ADD COLUMN direccion TEXT",
         "ALTER TABLE clientes ADD COLUMN telefono TEXT",
         "ALTER TABLE empresas ADD COLUMN usar_clientes_nuevos INTEGER DEFAULT 0",
+        "ALTER TABLE app_tokens ADD COLUMN token_visible TEXT",
     ):
         try:
             con.execute(alter)
