@@ -145,13 +145,21 @@
       <span class="sub" id="cartera-aviso"></span>
 
       <p class="sub" style="margin:.9rem 0 .2rem">Columnas que se muestran en Cartera</p>
+      <p class="sub" style="margin:0 0 .25rem">Marca las que quieras y usa ↑ ↓ para
+        ponerlas en el orden en que deben salir.</p>
       <div class="cartera-columnas" id="cartera-columnas">
         {% for c in columnas_hoja %}
-        <label>
-          <input type="checkbox" name="cartera_columnas" value="{{ c }}"
-                 {% if (not columnas_guardadas) or (c in columnas_guardadas) %}checked{% endif %}>
-          {{ c }}
-        </label>
+        <div class="cartera-col-fila" data-columna="{{ c }}">
+          <label>
+            <input type="checkbox" name="cartera_columnas" value="{{ c }}"
+                   {% if (not columnas_guardadas) or (c in columnas_guardadas) %}checked{% endif %}>
+            {{ c }}
+          </label>
+          <span class="cartera-col-mover">
+            <button type="button" class="subir" title="Subir">↑</button>
+            <button type="button" class="bajar" title="Bajar">↓</button>
+          </span>
+        </div>
         {% endfor %}
       </div>
       <label>Columna del vendedor (separa lo que ve cada uno)
@@ -220,18 +228,39 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
+  function htmlColumna(nombre, marcada) {
+    var n = esc(nombre);
+    return '<div class="cartera-col-fila" data-columna="' + n + '">' +
+      '<label><input type="checkbox" name="cartera_columnas" value="' + n + '"' +
+        (marcada ? ' checked' : '') + '> ' + n + '</label>' +
+      '<span class="cartera-col-mover">' +
+        '<button type="button" class="subir" title="Subir">↑</button>' +
+        '<button type="button" class="bajar" title="Bajar">↓</button>' +
+      '</span></div>';
+  }
+  function ordenActual() {
+    return Array.prototype.slice.call(caja.querySelectorAll('.cartera-col-fila'))
+      .map(function (f) { return f.getAttribute('data-columna'); });
+  }
   function pintar(columnas, vendedor) {
+    // conserva el orden que ya tenían y agrega al final las columnas nuevas
+    var previas = ordenActual();
+    var orden = previas.filter(function (n) { return columnas.indexOf(n) !== -1; });
+    for (var j = 0; j < columnas.length; j++) {
+      if (orden.indexOf(columnas[j]) === -1) orden.push(columnas[j]);
+    }
     var todas = !guardadas.length;      // sin selección guardada se muestran todas
     var html = '';
     var htmlFiltros = '';
     var opciones = '<option value="">Detectar por el nombre "Vendedor"</option>';
     var opcionesSaldo = '<option value="">Sin columna de saldo</option>';
-    for (var i = 0; i < columnas.length; i++) {
-      var nombre = esc(columnas[i]);
-      var marcada = todas || guardadas.indexOf(columnas[i]) !== -1;
-      var enFiltros = filtrosGuardados.indexOf(columnas[i]) !== -1;
-      html += '<label><input type="checkbox" name="cartera_columnas" value="' +
-              nombre + '"' + (marcada ? ' checked' : '') + '> ' + nombre + '</label>';
+    for (var i = 0; i < orden.length; i++) {
+      var marcada = todas || guardadas.indexOf(orden[i]) !== -1;
+      html += htmlColumna(orden[i], marcada);
+    }
+    for (var k = 0; k < columnas.length; k++) {
+      var nombre = esc(columnas[k]);
+      var enFiltros = filtrosGuardados.indexOf(columnas[k]) !== -1;
       htmlFiltros += '<label><input type="checkbox" name="cartera_filtros" value="' +
               nombre + '"' + (enFiltros ? ' checked' : '') + '> ' + nombre + '</label>';
       opciones += '<option value="' + nombre + '">' + nombre + '</option>';
@@ -245,6 +274,21 @@
     else if (guardadoVendedor) select.value = guardadoVendedor;
     if (selectSaldo && guardadoSaldo) selectSaldo.value = guardadoSaldo;
   }
+  // las flechas mueven la columna arriba o abajo (el orden se guarda así)
+  caja.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (!b || !b.closest('.cartera-col-mover')) return;
+    e.preventDefault();
+    var fila = b.closest('.cartera-col-fila');
+    if (!fila) return;
+    if (b.classList.contains('subir') && fila.previousElementSibling) {
+      fila.parentNode.insertBefore(fila, fila.previousElementSibling);
+      fila.scrollIntoView({ block: 'nearest' });
+    } else if (b.classList.contains('bajar') && fila.nextElementSibling) {
+      fila.parentNode.insertBefore(fila.nextElementSibling, fila);
+      fila.scrollIntoView({ block: 'nearest' });
+    }
+  });
   boton.addEventListener('click', function () {
     var enlace = (entrada.value || '').trim();
     if (!enlace) {

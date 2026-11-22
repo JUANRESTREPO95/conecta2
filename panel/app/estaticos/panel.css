@@ -307,14 +307,16 @@ table.tabla-catalogo form.inline button { min-width: 38px; height: 34px;
   letter-spacing: 0; color: var(--texto); background: #fff; }
 .cartera-filtros select:focus { outline: none; border-color: var(--primario); }
 
-/* la tabla ocupa el ancho disponible: las celdas parten el texto en varias
-   líneas en vez de sacar un scroll horizontal */
+/* la tabla ocupa el ancho disponible: los títulos van en un solo renglón y
+   las columnas se ajustan a su contenido (sin partir palabras) */
+main.pantalla-ancha { max-width: 1900px; }
 .cartera-marco { background: #fff; border: 2px solid var(--borde);
-  border-radius: 14px; overflow: hidden; }
-.cartera-tabla { border: 0; border-radius: 0; table-layout: fixed; width: 100%; }
-.cartera-tabla th, .cartera-tabla td { white-space: normal;
-  overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
-.cartera-tabla th { font-size: .72rem; }
+  border-radius: 14px; overflow-x: auto; overflow-y: hidden; }
+.cartera-tabla { border: 0; border-radius: 0; table-layout: auto; width: 100%; }
+.cartera-tabla th { font-size: .68rem; white-space: nowrap; padding: .55rem .5rem; }
+.cartera-tabla td { white-space: normal; overflow-wrap: normal; word-break: normal;
+  padding: .5rem .55rem; }
+.cartera-tabla th, .cartera-tabla td { vertical-align: top; }
 
 /* en el celular cada registro es una tarjeta con el título de cada dato */
 @media (max-width: 640px) {
@@ -344,6 +346,16 @@ table.tabla-catalogo form.inline button { min-width: 38px; height: 34px;
   margin: 0; font-weight: 500; font-size: .9rem; }
 .cartera-columnas input[type="checkbox"] { width: 18px; height: 18px;
   padding: 0; margin: 0; display: inline-block; flex: 0 0 auto; }
+/* orden de las columnas: flechas al lado de cada una */
+.cartera-col-fila { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.cartera-col-fila label { flex: 1 1 auto; min-width: 0; }
+.cartera-col-mover { display: inline-flex; gap: 3px; flex: 0 0 auto; }
+.cartera-col-mover button { width: 26px; height: 26px; min-width: 0;
+  padding: 0; margin: 0; font-size: .8rem; line-height: 1; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #fff; color: var(--texto); border: 2px solid #d7cfc9; }
+.cartera-col-mover button:hover { background: color-mix(in srgb, var(--primario) 10%, #fff);
+  border-color: var(--primario); color: var(--texto); }
 @media (max-width: 640px) {
   .cartera-columnas { grid-template-columns: 1fr; }
 }

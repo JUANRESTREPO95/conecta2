@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{# Cartera usa todo el ancho de la ventana: así las columnas caben sin
+   partir los títulos ni los nombres #}
+{% block clase_main %}pantalla-ancha{% endblock %}
 {% block contenido %}
 <h1>Cartera{% if empresa %} — {{ empresa.nombre }}{% endif %}</h1>
 {% if sin_empresa %}

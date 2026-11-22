@@ -1767,6 +1767,11 @@ def configuracion(request: Request):
         guardado = cartera_hoja.cache(empresa["id"])
         if guardado["datos"]:
             columnas_hoja = guardado["datos"]["columnas"]
+        # primero las columnas elegidas, en el orden guardado: así se ve aquí
+        # igual que en Cartera y se pueden mover con las flechas
+        if columnas_hoja and columnas_guardadas:
+            orden = [c for c in columnas_guardadas if c in columnas_hoja]
+            columnas_hoja = orden + [c for c in columnas_hoja if c not in orden]
     return respuesta(request, "configuracion.html",
                      {"e": empresa, **datos_empresas(),
                       "volver": "/configuracion",
