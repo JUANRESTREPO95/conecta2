@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS sesiones (
     token TEXT PRIMARY KEY,
     usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
     creado TEXT DEFAULT (datetime('now', 'localtime')),
-    expira TEXT NOT NULL
+    expira TEXT NOT NULL,
+    seccion TEXT DEFAULT 'pedidos'
 );
 
 -- Catálogo en caché del panel (lo llena el sincronizador/agente)
@@ -223,6 +224,7 @@ def esquema() -> None:  # crea tablas si faltan
     # columnas añadidas después del primer arranque
     for alter in (
         "ALTER TABLE sesiones ADD COLUMN empresa_activa INTEGER DEFAULT NULL",
+        "ALTER TABLE sesiones ADD COLUMN seccion TEXT DEFAULT 'pedidos'",
         "ALTER TABLE empresas ADD COLUMN color_letra TEXT DEFAULT '#ffffff'",
         "ALTER TABLE empresas ADD COLUMN color_cartera TEXT DEFAULT '#0f766e'",
         "ALTER TABLE sesiones ADD COLUMN carrito TEXT DEFAULT NULL",

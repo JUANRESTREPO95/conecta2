@@ -5,125 +5,142 @@
 {% else %}
 {% if request.query_params.get('ok') %}<p class="ok">Guardado.</p>{% endif %}
 {% if request.query_params.get('error') %}<p class="error">{{ request.query_params.get('error') }}</p>{% endif %}
+<p><a class="boton-enlace" href="/empresas">Administrar empresas</a></p>
+
 <div class="caja caja-ancha">
 <form method="post" action="/configuracion" enctype="multipart/form-data">
   <input type="hidden" name="empresa_id" value="{{ e.id }}">
+
+  <div class="config-general">
+    <h2>Datos generales</h2>
+    <p class="sub">Estos datos se usan en Pedidos y en Cartera.</p>
+    <label>Nombre del negocio
+      <input name="nombre" value="{{ e.nombre }}" required>
+    </label>
+    <label>Color de la letra de la barra
+      <input name="color_letra" value="{{ e.color_letra or '#ffffff' }}" type="color">
+    </label>
+    <label>Logo (subir imagen PNG/JPG — con fondo transparente se ve mejor)
+      <input name="logo_file" type="file" accept="image/*">
+    </label>
+    {% if e.logo %}<p class="sub">Logo actual: <img src="{{ e.logo }}" alt="logo" style="height:34px;vertical-align:middle"> &nbsp;
+      <label style="font-weight:400"><input type="checkbox" name="quitar_logo" value="1"> Quitar logo</label></p>{% endif %}
+  </div>
+
   <div class="config-columnas">
-  <div class="config-columna">
-  <h2>Configuración Pedidos</h2>
-  <p class="sub">El nombre, el logo y el color de la letra se comparten con Cartera.</p>
-  <label>Nombre del negocio
-    <input name="nombre" value="{{ e.nombre }}" required>
-  </label>
-  <label>Depósito que ven los vendedores
-    <select name="deposito">
-      <option value="1" {% if e.deposito_modo == '1' %}selected{% endif %}>Depósito 1 (F)</option>
-      <option value="2" {% if e.deposito_modo == '2' %}selected{% endif %}>Depósito 2 (W)</option>
-      <option value="suma" {% if e.deposito_modo == 'suma' %}selected{% endif %}>Suma de ambos</option>
-    </select>
-  </label>
-  <label>Qué productos mostrar en el catálogo
-    <select name="filtro" id="filtro" onchange="mostrarMinimo()">
-      <option value="todo" {% if (e.filtro_existencia or 'todo') == 'todo' %}selected{% endif %}>Mostrar todo</option>
-      <option value="positivo" {% if e.filtro_existencia == 'positivo' %}selected{% endif %}>Mostrar únicamente con existencia</option>
-      <option value="personalizado" {% if e.filtro_existencia == 'personalizado' %}selected{% endif %}>Personalizado (existencia mínima)</option>
-    </select>
-  </label>
-  <label id="caja-minimo" style="display:none">Mostrar solo productos con existencia mayor o igual a
-    <input name="minimo" type="number" min="1" step="1" value="{{ e.existencia_minima or 1 }}">
-  </label>
-  <label>Color principal del panel
-    <input name="color_primario" value="{{ e.color_primario }}" type="color">
-  </label>
-  <label>Formato del número de pedido
-    <input name="formato_numero" id="formato_numero"
-           value="{{ e.formato_numero or '{vendedor}-{anio}{numero}' }}">
-  </label>
-  <div class="chips-formato" id="chips-formato">
-    <button type="button" data-token="{vendedor}">Vendedor</button>
-    <button type="button" data-token="{anio}">Año</button>
-    <button type="button" data-token="{mes}">Mes</button>
-    <button type="button" data-token="{dia}">Día</button>
-    <button type="button" data-token="{numero}">Número</button>
-    <button type="button" data-token="-">-</button>
-    <button type="button" data-token="_">_</button>
-    <button type="button" data-token=".">.</button>
+    <div class="config-columna">
+      <h2>Configuración Pedidos</h2>
+
+      <label>Depósito que ven los vendedores
+        <select name="deposito">
+          <option value="1" {% if e.deposito_modo == '1' %}selected{% endif %}>Depósito 1 (F)</option>
+          <option value="2" {% if e.deposito_modo == '2' %}selected{% endif %}>Depósito 2 (W)</option>
+          <option value="suma" {% if e.deposito_modo == 'suma' %}selected{% endif %}>Suma de ambos</option>
+        </select>
+      </label>
+
+      <label>Qué productos mostrar en el catálogo
+        <select name="filtro" id="filtro" onchange="mostrarMinimo()">
+          <option value="todo" {% if (e.filtro_existencia or 'todo') == 'todo' %}selected{% endif %}>Mostrar todo</option>
+          <option value="positivo" {% if e.filtro_existencia == 'positivo' %}selected{% endif %}>Mostrar únicamente con existencia</option>
+          <option value="personalizado" {% if e.filtro_existencia == 'personalizado' %}selected{% endif %}>Personalizado (existencia mínima)</option>
+        </select>
+      </label>
+      <label id="caja-minimo" style="display:none">Mostrar solo productos con existencia mayor o igual a
+        <input name="minimo" type="number" min="1" step="1" value="{{ e.existencia_minima or 1 }}">
+      </label>
+
+      <label>Color principal de Pedidos
+        <input name="color_primario" value="{{ e.color_primario }}" type="color">
+      </label>
+
+      <label>Formato del número de pedido
+        <input name="formato_numero" id="formato_numero"
+               value="{{ e.formato_numero or '{vendedor}-{anio}{numero}' }}">
+      </label>
+      <div class="chips-formato" id="chips-formato">
+        <button type="button" data-token="{vendedor}">Vendedor</button>
+        <button type="button" data-token="{anio}">Año</button>
+        <button type="button" data-token="{mes}">Mes</button>
+        <button type="button" data-token="{dia}">Día</button>
+        <button type="button" data-token="{numero}">Número</button>
+        <button type="button" data-token="-">-</button>
+        <button type="button" data-token="_">_</button>
+        <button type="button" data-token=".">.</button>
+      </div>
+      <p class="sub" style="margin-top:4px">Toca los botones para armarlo (o escríbelo a
+        mano). Debe incluir <strong>{numero}</strong>. Vista previa:
+        <strong id="vista-numero">—</strong></p>
+
+      <label>El consecutivo se reinicia
+        <select name="reinicio_numero">
+          <option value="anual" {% if (e.reinicio_numero or 'anual') == 'anual' %}selected{% endif %}>Cada año</option>
+          <option value="mensual" {% if e.reinicio_numero == 'mensual' %}selected{% endif %}>Cada mes</option>
+          <option value="diario" {% if e.reinicio_numero == 'diario' %}selected{% endif %}>Cada día</option>
+        </select>
+      </label>
+      <label>Dígitos del número (relleno con ceros)
+        <input name="digitos_numero" type="number" min="1" max="6" step="1" value="{{ e.digitos_numero or 4 }}">
+      </label>
+
+      <label>Clientes en los pedidos
+        <select name="usar_clientes" id="usar_clientes" onchange="mostrarClienteDefecto()">
+          <option value="1" {% if e.usar_clientes %}selected{% endif %}>Activado: el vendedor puede elegir cliente</option>
+          <option value="" {% if not e.usar_clientes %}selected{% endif %}>Desactivado: el vendedor no ve el cliente</option>
+        </select>
+      </label>
+      <label>Autorizados en los pedidos
+        <select name="usar_autorizados" id="usar_autorizados" onchange="mostrarClienteDefecto()">
+          <option value="1" {% if e.usar_autorizados %}selected{% endif %}>Activado: el vendedor puede elegir autorizado</option>
+          <option value="" {% if not e.usar_autorizados %}selected{% endif %}>Desactivado: el vendedor no ve autorizados</option>
+        </select>
+      </label>
+      <p class="sub" id="aviso-autorizados" style="display:none;margin-top:-6px">
+        Los autorizados solo se pueden activar cuando Clientes está activado.
+      </p>
+      <label>Crear clientes desde el pedido
+        <select name="usar_clientes_nuevos" id="usar_clientes_nuevos" onchange="mostrarClienteDefecto()">
+          <option value="1" {% if e.usar_clientes_nuevos %}selected{% endif %}>Activado: aparece el botón "Cliente nuevo"</option>
+          <option value="" {% if not e.usar_clientes_nuevos %}selected{% endif %}>Desactivado: solo se eligen clientes ya creados</option>
+        </select>
+      </label>
+      <div id="caja-cliente-defecto" class="caja-cliente-defecto">
+        <label>Cliente predeterminado (todo pedido sin cliente va a este)
+          <input type="text" id="cp-buscar" placeholder="Escribe el nombre, código o NIT…"
+                 autocomplete="off" value="{{ e.cliente_predeterminado_nombre or '' }}">
+          <input type="hidden" name="cliente_predeterminado" id="cp-codigo"
+                 value="{{ e.cliente_predeterminado_codigo or '' }}">
+        </label>
+        <div id="cp-resultados" class="cliente-resultados"></div>
+        <p class="sub" id="cp-elegido">
+          {% if e.cliente_predeterminado_codigo %}
+          Cliente predeterminado: <strong>{{ e.cliente_predeterminado_nombre }}</strong>
+          — NIT {{ e.cliente_predeterminado_nit or '—' }}
+          <button type="button" class="mini" id="cp-quitar">Quitar</button>
+          {% else %}
+          Sin cliente predeterminado: si se deja vacío, los pedidos van como
+          CONSUMIDOR FINAL (2222222222).
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="config-columna">
+      <h2>Configuración Cartera</h2>
+      <label>Color de la sección Cartera
+        <input name="color_cartera" value="{{ e.color_cartera or '#0f766e' }}" type="color">
+      </label>
+      <p class="sub">Con este color se distingue Cartera de Pedidos en la barra
+        superior, también al abrir Vendedores, Apps o Configuración desde Cartera.</p>
+      <p class="sub">Los ajustes propios de Cartera (por ejemplo, qué saldos
+        mostrar) se agregarán en esta columna.</p>
+    </div>
   </div>
-  <p class="sub" style="margin-top:4px">Toca los botones para armarlo (o escríbelo a
-    mano). Debe incluir <strong>{numero}</strong>. Vista previa:
-    <strong id="vista-numero">—</strong></p>
-  <label>El consecutivo se reinicia
-    <select name="reinicio_numero">
-      <option value="anual" {% if (e.reinicio_numero or 'anual') == 'anual' %}selected{% endif %}>Cada año</option>
-      <option value="mensual" {% if e.reinicio_numero == 'mensual' %}selected{% endif %}>Cada mes</option>
-      <option value="diario" {% if e.reinicio_numero == 'diario' %}selected{% endif %}>Cada día</option>
-    </select>
-  </label>
-  <label>Dígitos del número (relleno con ceros)
-    <input name="digitos_numero" type="number" min="1" max="6" step="1" value="{{ e.digitos_numero or 4 }}">
-  </label>
-  <label>Clientes en los pedidos
-    <select name="usar_clientes" id="usar_clientes" onchange="mostrarClienteDefecto()">
-      <option value="1" {% if e.usar_clientes %}selected{% endif %}>Activado: el vendedor puede elegir cliente</option>
-      <option value="" {% if not e.usar_clientes %}selected{% endif %}>Desactivado: el vendedor no ve el cliente</option>
-    </select>
-  </label>
-  <label>Autorizados en los pedidos
-    <select name="usar_autorizados" id="usar_autorizados" onchange="mostrarClienteDefecto()">
-      <option value="1" {% if e.usar_autorizados %}selected{% endif %}>Activado: el vendedor puede elegir autorizado</option>
-      <option value="" {% if not e.usar_autorizados %}selected{% endif %}>Desactivado: el vendedor no ve autorizados</option>
-    </select>
-  </label>
-  <p class="sub" id="aviso-autorizados" style="display:none;margin-top:-6px">
-    Los autorizados solo se pueden activar cuando Clientes está activado.
-  </p>
-  <label>Crear clientes desde el pedido
-    <select name="usar_clientes_nuevos" id="usar_clientes_nuevos" onchange="mostrarClienteDefecto()">
-      <option value="1" {% if e.usar_clientes_nuevos %}selected{% endif %}>Activado: aparece el botón "Cliente nuevo"</option>
-      <option value="" {% if not e.usar_clientes_nuevos %}selected{% endif %}>Desactivado: solo se eligen clientes ya creados</option>
-    </select>
-  </label>
-  <div id="caja-cliente-defecto" class="caja-cliente-defecto">
-    <label>Cliente predeterminado (todo pedido sin cliente va a este)
-      <input type="text" id="cp-buscar" placeholder="Escribe el nombre, código o NIT…"
-             autocomplete="off" value="{{ e.cliente_predeterminado_nombre or '' }}">
-      <input type="hidden" name="cliente_predeterminado" id="cp-codigo"
-             value="{{ e.cliente_predeterminado_codigo or '' }}">
-    </label>
-    <div id="cp-resultados" class="cliente-resultados"></div>
-    <p class="sub" id="cp-elegido">
-      {% if e.cliente_predeterminado_codigo %}
-      Cliente predeterminado: <strong>{{ e.cliente_predeterminado_nombre }}</strong>
-      — NIT {{ e.cliente_predeterminado_nit or '—' }}
-      <button type="button" class="mini" id="cp-quitar">Quitar</button>
-      {% else %}
-      Sin cliente predeterminado: si se deja vacío, los pedidos van como
-      CONSUMIDOR FINAL (2222222222).
-      {% endif %}
-    </p>
-  </div>
-  <label>Color de la letra de la barra
-    <input name="color_letra" value="{{ e.color_letra or '#ffffff' }}" type="color">
-  </label>
-  <label>Logo (subir imagen PNG/JPG — con fondo transparente se ve mejor)
-    <input name="logo_file" type="file" accept="image/*">
-  </label>
-  {% if e.logo %}<p class="sub">Logo actual: <img src="{{ e.logo }}" alt="logo" style="height:34px;vertical-align:middle"> &nbsp;
-    <label style="font-weight:400"><input type="checkbox" name="quitar_logo" value="1"> Quitar logo</label></p>{% endif %}
-  </div>
-  <div class="config-columna">
-    <h2>Configuración Cartera</h2>
-    <label>Color de la sección Cartera
-      <input name="color_cartera" value="{{ e.color_cartera or '#0f766e' }}" type="color">
-    </label>
-    <p class="sub">Con este color se distingue Cartera de Pedidos en la barra superior.</p>
-    <p class="sub">Los ajustes propios de Cartera (por ejemplo, qué saldos
-      mostrar) se agregarán en esta columna.</p>
-  </div>
-  </div>
+
   <button type="submit">Guardar</button>
 </form>
 </div>
+
 <script>
 function mostrarMinimo() {
   var m = document.getElementById('filtro').value;

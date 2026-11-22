@@ -51,11 +51,34 @@ def usuario_actual(request: Request):
     return seguridad.usuario_de_sesion(request.cookies.get(COOKIE_SESION))
 
 
-def seccion_actual(request: Request) -> str:
-    """Sección que se está viendo: 'pedidos' o 'cartera'."""
+def seccion_de_ruta(request: Request):
+    """Devuelve la sección si la página pertenece a una; si no, None."""
     ruta = request.url.path
-    return "cartera" if (ruta == "/cartera"
-                         or ruta.startswith("/cartera/")) else "pedidos"
+    if ruta == "/cartera" or ruta.startswith("/cartera/"):
+        return "cartera"
+    if (ruta in ("/catalogo", "/pedido", "/pedidos")
+            or ruta.startswith("/pedidos/")):
+        return "pedidos"
+    return None
+
+
+def fija_seccion(usuario, seccion: str) -> None:
+    """Recuerda en la sesión desde qué sección se está trabajando."""
+    if usuario is None or "seccion_actual" not in usuario.keys():
+        return
+    if (usuario["seccion_actual"] or "pedidos") != seccion:
+        db.ejecutar("UPDATE sesiones SET seccion = ? WHERE token = ?",
+                    (seccion, usuario["token"]))
+
+
+def seccion_actual(request: Request, usuario=None) -> str:
+    """La de la ruta o, en páginas comunes, la que quedó en la sesión."""
+    fija = seccion_de_ruta(request)
+    if fija:
+        return fija
+    if usuario is not None and "seccion_actual" in usuario.keys():
+        return usuario["seccion_actual"] or "pedidos"
+    return "pedidos"
 
 
 def colores_para(usuario, seccion: str = "pedidos") -> dict:
@@ -115,7 +138,11 @@ def datos_carrito(usuario) -> dict:
 
 def respuesta(request: Request, plantilla: str, contexto: dict):
     usuario = usuario_actual(request)
-    seccion = seccion_actual(request)
+    seccion = seccion_actual(request, usuario)
+    # al entrar a una página de sección se recuerda en la sesión: así
+    # Vendedores, Apps y Configuración conservan el color de donde se abren
+    if usuario is not None and seccion_de_ruta(request):
+        fija_seccion(usuario, seccion)
     ctx = {"usuario": usuario, **colores_para(usuario, seccion),
            **datos_carrito(usuario), **contexto}
     return plantillas.TemplateResponse(request, plantilla, ctx)

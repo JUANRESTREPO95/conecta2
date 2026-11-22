@@ -28,22 +28,19 @@
     <nav>
       <a href="/inicio">Inicio</a>
       {% if seccion == 'cartera' %}
-        <a href="/catalogo">Pedidos</a>
         <a href="/cartera">Cartera</a>
       {% else %}
         <a href="/catalogo">Catálogo</a>
         <a href="/pedido">Pedido{% if carrito_n %} ({{ carrito_n }}){% endif %}</a>
         <a href="/pedidos">Historial</a>
-        <a href="/cartera">Cartera</a>
       {% endif %}
-      {# Apps y Vendedores son los mismos en Pedidos y en Cartera #}
+      {# Vendedores, Apps y Configuración son los mismos en ambas secciones #}
       {% if usuario.rol in ('admin', 'super') %}
         <a href="/vendedores">Vendedores</a>
         <a href="/apps">Apps</a>
       {% endif %}
       {% if usuario.rol == 'super' %}
         <a href="/configuracion">Configuración</a>
-        <a href="/empresas">Empresas</a>
       {% endif %}
       <a href="/logout" class="salir">Salir ({{ usuario.nombre }})</a>
     </nav>
