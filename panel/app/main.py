@@ -132,13 +132,10 @@ def mapa_carrito(carrito: list) -> dict:
 
 def datos_carrito(usuario) -> dict:
     """Artículos y monto del carrito del usuario (para el indicador flotante)."""
-    if usuario is None or not usuario["carrito"]:
+    if usuario is None:
         return {"carrito_n": 0, "carrito_monto": 0.0, "carrito_items": 0,
                 "carrito_map": {}}
-    try:
-        carrito = json.loads(usuario["carrito"] or "[]")
-    except Exception:
-        carrito = []
+    carrito = carrito_obtener(usuario)
     return {**resumen_carrito(carrito), "carrito_map": mapa_carrito(carrito)}
 
 
@@ -1970,10 +1967,36 @@ def catalogo_buscar(request: Request, q: str = "", limite: int = 100):
 import json
 
 
+def empresa_carrito(usuario):
+    """Empresa del carrito: la activa o, para el super, la primera disponible."""
+    empresa_id = usuario["empresa_actual"]
+    if empresa_id:
+        return empresa_id
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return None
+    # el super recuerda la empresa para las siguientes operaciones
+    fija_empresa_activa(usuario, empresa["id"])
+    return empresa["id"]
+
+
 def carrito_obtener(usuario) -> list:
+    empresa_id = empresa_carrito(usuario)
+    if empresa_id:
+        fila = db.fila(
+            "SELECT carrito FROM carritos WHERE usuario_id = ? AND empresa_id = ?",
+            (usuario["id"], empresa_id))
+        if fila is not None and fila["carrito"]:
+            try:
+                return json.loads(fila["carrito"])
+            except Exception:
+                return []
     if not usuario["carrito"]:
         return []
-    return json.loads(usuario["carrito"])
+    try:
+        return json.loads(usuario["carrito"])
+    except Exception:
+        return []
 
 
 def carrito_guardar(usuario, carrito: list) -> None:
@@ -1982,12 +2005,15 @@ def carrito_guardar(usuario, carrito: list) -> None:
     Así el pedido en curso no se pierde al cerrar la página: al volver a
     entrar, con la sesión que sea, aparece lo que había agregado.
     """
+    empresa_id = empresa_carrito(usuario)
+    if empresa_id is None:
+        return
     db.ejecutar(
         "INSERT INTO carritos (usuario_id, empresa_id, carrito, actualizado) "
         "VALUES (?, ?, ?, datetime('now','localtime')) "
         "ON CONFLICT(usuario_id, empresa_id) DO UPDATE SET "
         "carrito = excluded.carrito, actualizado = excluded.actualizado",
-        (usuario["id"], usuario["empresa_actual"],
+        (usuario["id"], empresa_id,
          json.dumps(carrito, ensure_ascii=False)))
     # deja limpia la copia vieja que vivía en la sesión
     db.ejecutar("UPDATE sesiones SET carrito = NULL WHERE token = ?",
