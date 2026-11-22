@@ -51,9 +51,17 @@ def usuario_actual(request: Request):
     return seguridad.usuario_de_sesion(request.cookies.get(COOKIE_SESION))
 
 
-def colores_para(usuario) -> dict:
+def seccion_actual(request: Request) -> str:
+    """Sección que se está viendo: 'pedidos' o 'cartera'."""
+    ruta = request.url.path
+    return "cartera" if (ruta == "/cartera"
+                         or ruta.startswith("/cartera/")) else "pedidos"
+
+
+def colores_para(usuario, seccion: str = "pedidos") -> dict:
     defecto = {"color_primario": "#1e40af", "color_secundario": "#0f172a",
-               "color_letra": "#ffffff", "nombre_negocio": "Conecta2", "logo": None}
+               "color_letra": "#ffffff", "nombre_negocio": "Conecta2", "logo": None,
+               "seccion": seccion}
     empresa = None
     if usuario is not None:
         # el super sigue la empresa que está viendo; los demás, la suya
@@ -67,10 +75,17 @@ def colores_para(usuario) -> dict:
         empresa = db.fila("SELECT * FROM empresas WHERE activa = 1 ORDER BY id LIMIT 1")
     if empresa is None:
         return defecto
-    return {"color_primario": empresa["color_primario"],
+    # Cartera tiene su propio color para distinguirla de Pedidos
+    if seccion == "cartera":
+        color = (empresa["color_cartera"] or empresa["color_primario"]
+                 or "#0f766e")
+    else:
+        color = empresa["color_primario"] or "#1e40af"
+    return {"color_primario": color,
             "color_secundario": empresa["color_secundario"],
             "color_letra": empresa["color_letra"] or "#ffffff",
-            "nombre_negocio": empresa["nombre"], "logo": empresa["logo"]}
+            "nombre_negocio": empresa["nombre"], "logo": empresa["logo"],
+            "seccion": seccion}
 
 
 def fija_empresa_activa(usuario, empresa_id: int) -> None:
@@ -100,7 +115,9 @@ def datos_carrito(usuario) -> dict:
 
 def respuesta(request: Request, plantilla: str, contexto: dict):
     usuario = usuario_actual(request)
-    ctx = {"usuario": usuario, **colores_para(usuario), **datos_carrito(usuario), **contexto}
+    seccion = seccion_actual(request)
+    ctx = {"usuario": usuario, **colores_para(usuario, seccion),
+           **datos_carrito(usuario), **contexto}
     return plantillas.TemplateResponse(request, plantilla, ctx)
 
 
@@ -441,6 +458,7 @@ def app_datos(request: Request):
     config_empresa = {
         "id": empresa["id"], "nombre": empresa["nombre"],
         "color_primario": empresa["color_primario"],
+        "color_cartera": empresa["color_cartera"],
         "color_letra": empresa["color_letra"],
         "logo": empresa["logo"],
         "usar_clientes": empresa["usar_clientes"],
@@ -1273,6 +1291,16 @@ def inicio(request: Request):
                      {"hora": datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 
+@app.get("/cartera")
+def cartera(request: Request):
+    """Apartado de Cartera (por ahora sin datos; se conectará al panel)."""
+    try:
+        protege(request)
+    except Redirige:
+        return RedirectResponse("/login", status_code=303)
+    return respuesta(request, "cartera.html", {})
+
+
 # ---------- empresas (solo super) ----------
 
 def requiere_rol(request: Request, roles):
@@ -1664,6 +1692,7 @@ def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> tuple[str, str]
 def configuracion_post(request: Request, empresa_id: int = Form(...),
                        nombre: str = Form(""), deposito: str = Form("1"),
                        color_primario: str = Form("#1e40af"),
+                       color_cartera: str = Form("#0f766e"),
                        color_letra: str = Form("#ffffff"),
                        logo_file: UploadFile | str = File(None),
                        quitar_logo: str = Form(""),
@@ -1721,7 +1750,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
         else:
             codigo_def = ""
     db.ejecutar("UPDATE empresas SET nombre = ?, deposito_modo = ?, "
-                "ocultar_agotados = ?, color_primario = ?, color_secundario = ?, "
+                "ocultar_agotados = ?, color_primario = ?, color_cartera = ?, "
+                "color_secundario = ?, "
                 "color_letra = ?, logo = ?, filtro_existencia = ?, "
                 "existencia_minima = ?, usar_clientes = ?, "
                 "usar_autorizados = ?, usar_clientes_nuevos = ?, "
@@ -1731,7 +1761,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "cliente_predeterminado_rif = ?, formato_numero = ?, "
                 "reinicio_numero = ?, digitos_numero = ? WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
-                 color_primario, color_primario, color_letra, logo,
+                 color_primario, color_cartera, color_primario, color_letra, logo,
                  filtro, max(0, minimo), usar_clientes_on,
                  usar_autorizados_on, usar_clientes_nuevos_on,
                  codigo_def or None, nombre_def, nit_def, rif_def,

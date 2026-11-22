@@ -5,9 +5,13 @@
 {% else %}
 {% if request.query_params.get('ok') %}<p class="ok">Guardado.</p>{% endif %}
 {% if request.query_params.get('error') %}<p class="error">{{ request.query_params.get('error') }}</p>{% endif %}
-<div class="caja">
+<div class="caja caja-ancha">
 <form method="post" action="/configuracion" enctype="multipart/form-data">
   <input type="hidden" name="empresa_id" value="{{ e.id }}">
+  <div class="config-columnas">
+  <div class="config-columna">
+  <h2>Configuración Pedidos</h2>
+  <p class="sub">El nombre, el logo y el color de la letra se comparten con Cartera.</p>
   <label>Nombre del negocio
     <input name="nombre" value="{{ e.nombre }}" required>
   </label>
@@ -106,6 +110,17 @@
   </label>
   {% if e.logo %}<p class="sub">Logo actual: <img src="{{ e.logo }}" alt="logo" style="height:34px;vertical-align:middle"> &nbsp;
     <label style="font-weight:400"><input type="checkbox" name="quitar_logo" value="1"> Quitar logo</label></p>{% endif %}
+  </div>
+  <div class="config-columna">
+    <h2>Configuración Cartera</h2>
+    <label>Color de la sección Cartera
+      <input name="color_cartera" value="{{ e.color_cartera or '#0f766e' }}" type="color">
+    </label>
+    <p class="sub">Con este color se distingue Cartera de Pedidos en la barra superior.</p>
+    <p class="sub">Los ajustes propios de Cartera (por ejemplo, qué saldos
+      mostrar) se agregarán en esta columna.</p>
+  </div>
+  </div>
   <button type="submit">Guardar</button>
 </form>
 </div>

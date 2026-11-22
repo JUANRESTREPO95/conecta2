@@ -27,9 +27,16 @@
     {% if usuario %}
     <nav>
       <a href="/inicio">Inicio</a>
-      <a href="/catalogo">Catálogo</a>
-      <a href="/pedido">Pedido{% if carrito_n %} ({{ carrito_n }}){% endif %}</a>
-      <a href="/pedidos">Historial</a>
+      {% if seccion == 'cartera' %}
+        <a href="/catalogo">Pedidos</a>
+        <a href="/cartera">Cartera</a>
+      {% else %}
+        <a href="/catalogo">Catálogo</a>
+        <a href="/pedido">Pedido{% if carrito_n %} ({{ carrito_n }}){% endif %}</a>
+        <a href="/pedidos">Historial</a>
+        <a href="/cartera">Cartera</a>
+      {% endif %}
+      {# Apps y Vendedores son los mismos en Pedidos y en Cartera #}
       {% if usuario.rol in ('admin', 'super') %}
         <a href="/vendedores">Vendedores</a>
         <a href="/apps">Apps</a>
@@ -46,7 +53,7 @@
   <main>
     {% block contenido %}{% endblock %}
   </main>
-  {% if usuario %}
+  {% if usuario and seccion != 'cartera' %}
   <a href="/pedido" id="carrito-flotante" class="carrito"
      {% if not carrito_n %}style="display:none"{% endif %}>
     Pedido: <span id="carrito-monto">{{ carrito_monto | num }}</span>

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS empresas (
     activa INTEGER NOT NULL DEFAULT 1,
     logo TEXT,
     color_primario TEXT DEFAULT '#1e40af',
+    color_cartera TEXT DEFAULT '#0f766e',
     color_secundario TEXT DEFAULT '#64748b',
     deposito_modo TEXT NOT NULL DEFAULT '1',        -- '1', '2' o 'suma'
     ocultar_agotados INTEGER NOT NULL DEFAULT 1,
@@ -223,6 +224,7 @@ def esquema() -> None:  # crea tablas si faltan
     for alter in (
         "ALTER TABLE sesiones ADD COLUMN empresa_activa INTEGER DEFAULT NULL",
         "ALTER TABLE empresas ADD COLUMN color_letra TEXT DEFAULT '#ffffff'",
+        "ALTER TABLE empresas ADD COLUMN color_cartera TEXT DEFAULT '#0f766e'",
         "ALTER TABLE sesiones ADD COLUMN carrito TEXT DEFAULT NULL",
         "ALTER TABLE productos ADD COLUMN codigo_a2 TEXT",
         "ALTER TABLE empresas ADD COLUMN filtro_existencia TEXT DEFAULT NULL",
