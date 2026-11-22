@@ -206,12 +206,37 @@ def sin_tildes(texto: str) -> str:
     return re.sub(r"\s+", " ", plano).strip().upper()
 
 
-def columnas_guardadas(empresa) -> list[str]:
+def _lista_json(valor) -> list[str]:
+    """Lee una lista de nombres guardada en la base (JSON)."""
     try:
-        elegidas = json.loads(empresa["cartera_columnas"] or "[]")
+        elegidas = json.loads(valor or "[]")
     except (TypeError, ValueError):
         elegidas = []
     return [str(c) for c in elegidas] if isinstance(elegidas, list) else []
+
+
+def columnas_guardadas(empresa) -> list[str]:
+    return _lista_json(empresa["cartera_columnas"])
+
+
+def filtros_guardados(empresa) -> list[str]:
+    """Columnas para las que se muestran filtros desplegables."""
+    return _lista_json(empresa["cartera_filtros"])
+
+
+def indices_de(empresa, columnas: list[str], valor) -> list[int]:
+    """Posiciones de los nombres guardados (en el orden en que se guardaron)."""
+    indices = []
+    for nombre in _lista_json(valor):
+        for i, titulo in enumerate(columnas):
+            if titulo == nombre:
+                indices.append(i)
+                break
+    return indices
+
+
+def indices_filtros(empresa, columnas: list[str]) -> list[int]:
+    return indices_de(empresa, columnas, empresa["cartera_filtros"])
 
 
 def indices_visibles(empresa, columnas: list[str]) -> list[int]:
@@ -249,6 +274,94 @@ def nombre_vendedor(columnas: list[str]) -> str:
         if "VENDEDOR" in sin_tildes(titulo):
             return titulo
     return ""
+
+
+# ---------- saldo ----------
+
+def a_numero(texto) -> float | None:
+    """Convierte una celda con dinero en número ("$1.234,56", "1234.56").
+
+    Google exporta los números con punto decimal y sin separadores de miles;
+    igual se aceptan formatos con punto y coma. None si no es un número.
+    """
+    if texto is None:
+        return None
+    limpio = re.sub(r"[^0-9,.\-]", "", str(texto))
+    if limpio in ("", "-", ".", ","):
+        return None
+    negativo = limpio.startswith("-")
+    limpio = limpio.lstrip("-")
+    comas = limpio.count(",")
+    puntos = limpio.count(".")
+    if comas and puntos:
+        # el último separador que aparece es el decimal
+        if limpio.rfind(",") > limpio.rfind("."):
+            limpio = limpio.replace(".", "").replace(",", ".")
+        else:
+            limpio = limpio.replace(",", "")
+    elif comas > 1:
+        limpio = limpio.replace(",", "")           # 1,234,567 = miles
+    elif comas == 1:
+        limpio = limpio.replace(",", ".")          # 1,5 = decimal
+    elif puntos > 1:
+        limpio = limpio.replace(".", "")           # 1.234.567 = miles
+    try:
+        numero = float(limpio)
+    except ValueError:
+        return None
+    return -numero if negativo else numero
+
+
+def indice_saldo(empresa, columnas: list[str]) -> int:
+    """Posición de la columna del saldo elegida en Configuración (-1 si no)."""
+    nombre = (empresa["cartera_columna_saldo"] or "").strip()
+    if not nombre:
+        return -1
+    for i, titulo in enumerate(columnas):
+        if titulo == nombre:
+            return i
+    return -1
+
+
+def saldo_minimo(empresa) -> float:
+    """Desde qué saldo se muestran las filas (0 = sin filtro)."""
+    try:
+        valor = float(empresa["cartera_saldo_minimo"] or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, valor)
+
+
+def filas_con_saldo(filas: list[list[str]], indice: int, minimo: float) -> list[list[str]]:
+    """Deja solo las filas cuyo saldo llega al mínimo (si hay mínimo)."""
+    if indice < 0 or minimo <= 0:
+        return filas
+    salida = []
+    for fila in filas:
+        valor = a_numero(fila[indice]) if indice < len(fila) else None
+        if valor is not None and valor >= minimo:
+            salida.append(fila)
+    return salida
+
+
+def sumar_saldo(filas: list[list[str]], indice: int) -> float:
+    total = 0.0
+    for fila in filas:
+        valor = a_numero(fila[indice]) if indice < len(fila) else None
+        if valor is not None:
+            total += valor
+    return total
+
+
+def opciones_filtro(filas: list[list[str]], indice: int, tope: int = 200) -> list[str]:
+    """Valores distintos de una columna, para el desplegable del filtro."""
+    valores = set()
+    for fila in filas:
+        if indice < len(fila):
+            valor = (fila[indice] or "").strip()
+            if valor:
+                valores.add(valor)
+    return sorted(valores, key=sin_tildes)[:tope]
 
 
 # ---------- filtro por vendedor ----------

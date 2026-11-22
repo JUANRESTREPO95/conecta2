@@ -164,6 +164,36 @@
       </label>
       <p class="sub">El vendedor solo verá las filas donde esta columna
         coincida con su código o su nombre de A2. Admin y super ven todo.</p>
+
+      <p class="sub" style="margin:.9rem 0 .2rem">Columnas con filtro rápido en Cartera</p>
+      <div class="cartera-columnas" id="cartera-filtros-cols">
+        {% for c in columnas_hoja %}
+        <label>
+          <input type="checkbox" name="cartera_filtros" value="{{ c }}"
+                 {% if c in filtros_guardados %}checked{% endif %}>
+          {{ c }}
+        </label>
+        {% endfor %}
+      </div>
+      <p class="sub" style="margin-top:-6px">Cada una aparece como un desplegable
+        arriba de la tabla (por ejemplo Ciudad o Estatus).</p>
+
+      <label>Columna del saldo
+        <select name="cartera_columna_saldo" id="cartera-col-saldo">
+          <option value="">Sin columna de saldo</option>
+          {% for c in columnas_hoja %}
+          <option value="{{ c }}" {% if e.cartera_columna_saldo == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Mostrar saldos desde
+        <input name="cartera_saldo_minimo" id="cartera-saldo-minimo" type="text"
+               inputmode="decimal" placeholder="0 = mostrar todos"
+               value="{% if e.cartera_saldo_minimo %}{{ e.cartera_saldo_minimo|int }}{% endif %}">
+      </label>
+      <p class="sub" style="margin-top:-6px">Se ocultan las filas cuyo saldo sea
+        menor a esa cantidad. Arriba de la tabla se muestra el saldo total de lo
+        que queda visible.</p>
     </div>
   </div>
 
@@ -177,9 +207,13 @@
   var entrada = document.getElementById('cartera-url');
   var aviso = document.getElementById('cartera-aviso');
   var caja = document.getElementById('cartera-columnas');
+  var cajaFiltros = document.getElementById('cartera-filtros-cols');
   var select = document.getElementById('cartera-col-vendedor');
+  var selectSaldo = document.getElementById('cartera-col-saldo');
   var guardadas = {{ columnas_guardadas | tojson }};
   var guardadoVendedor = {{ (e.cartera_columna_vendedor or '') | tojson }};
+  var guardadoSaldo = {{ (e.cartera_columna_saldo or '') | tojson }};
+  var filtrosGuardados = {{ filtros_guardados | tojson }};
 
   function esc(v) {
     return String(v || '').replace(/[&<>"]/g, function (c) {
@@ -189,18 +223,27 @@
   function pintar(columnas, vendedor) {
     var todas = !guardadas.length;      // sin selección guardada se muestran todas
     var html = '';
+    var htmlFiltros = '';
     var opciones = '<option value="">Detectar por el nombre "Vendedor"</option>';
+    var opcionesSaldo = '<option value="">Sin columna de saldo</option>';
     for (var i = 0; i < columnas.length; i++) {
       var nombre = esc(columnas[i]);
       var marcada = todas || guardadas.indexOf(columnas[i]) !== -1;
+      var enFiltros = filtrosGuardados.indexOf(columnas[i]) !== -1;
       html += '<label><input type="checkbox" name="cartera_columnas" value="' +
               nombre + '"' + (marcada ? ' checked' : '') + '> ' + nombre + '</label>';
+      htmlFiltros += '<label><input type="checkbox" name="cartera_filtros" value="' +
+              nombre + '"' + (enFiltros ? ' checked' : '') + '> ' + nombre + '</label>';
       opciones += '<option value="' + nombre + '">' + nombre + '</option>';
+      opcionesSaldo += '<option value="' + nombre + '">' + nombre + '</option>';
     }
     caja.innerHTML = html;
+    if (cajaFiltros) cajaFiltros.innerHTML = htmlFiltros;
     select.innerHTML = opciones;
+    if (selectSaldo) selectSaldo.innerHTML = opcionesSaldo;
     if (vendedor) select.value = vendedor;
     else if (guardadoVendedor) select.value = guardadoVendedor;
+    if (selectSaldo && guardadoSaldo) selectSaldo.value = guardadoSaldo;
   }
   boton.addEventListener('click', function () {
     var enlace = (entrada.value || '').trim();

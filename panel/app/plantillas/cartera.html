@@ -21,6 +21,8 @@
   {% if puede_actualizar %} — <a href="/cartera?actualizar=1">Actualizar ahora</a>{% endif %}
   — {{ filas|length }} registro{{ '' if filas|length == 1 else 's' }}
   {%- if usuario.rol == 'vendedor' %} de tu cartera{% endif %}
+  {%- if hay_saldo and total_saldo is not none %} — Saldo total:
+  <strong>{{ total_saldo | num }}</strong>{% endif %}
 </p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% if usuario.rol == 'vendedor' and not hay_vendedor_col %}
@@ -40,13 +42,28 @@
 </p></div>
 {% else %}
 <input id="cartera-filtro" class="cartera-filtro" autocomplete="off"
-       placeholder="Filtrar por cliente, documento, vendedor…">
+       placeholder="Buscar en la cartera…">
+{% if filtros %}
+<div class="cartera-filtros" id="cartera-filtros">
+  {% for f in filtros %}
+  <label>{{ f.nombre }}
+    <select data-filtro="{{ loop.index0 }}">
+      <option value="">Todos</option>
+      {% for op in f.opciones %}<option value="{{ op }}">{{ op }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+</div>
+{% endif %}
 <div class="cartera-marco">
   <table class="cartera-tabla">
     <thead><tr>{% for c in columnas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
     <tbody id="cartera-filas">
     {% for f in filas %}
-      <tr>{% for v in f %}<td>{{ v }}</td>{% endfor %}</tr>
+      <tr>
+        {% for c in columnas %}<td data-col="{{ c }}">{{ f.celdas[loop.index0] }}</td>{% endfor %}
+        {% for v in f.filtros %}<td class="dato-filtro" style="display:none">{{ v }}</td>{% endfor %}
+      </tr>
     {% endfor %}
     </tbody>
   </table>
@@ -60,6 +77,8 @@
   var cuenta = document.getElementById('cartera-cuenta');
   var filas = Array.prototype.slice.call(cuerpo.rows);
   var total = filas.length;
+  var selects = Array.prototype.slice.call(
+    document.querySelectorAll('#cartera-filtros select'));
   // mayúsculas y sin tildes, para que "Perez" encuentre "Pérez"
   function normal(t) {
     var n = String(t || '').normalize('NFD');
@@ -71,11 +90,25 @@
     return salida.toUpperCase();
   }
   var textos = filas.map(function (f) { return normal(f.textContent); });
+  // valores de cada fila en las columnas que tienen filtro (van ocultas)
+  var valores = filas.map(function (f) {
+    return Array.prototype.slice.call(f.querySelectorAll('td.dato-filtro'))
+      .map(function (td) { return td.textContent.trim(); });
+  });
   function filtrar() {
     var q = normal(entrada.value.trim());
+    var elegidos = selects.map(function (s) { return s.value; });
     var visibles = 0;
     for (var i = 0; i < filas.length; i++) {
       var ver = !q || textos[i].indexOf(q) !== -1;
+      if (ver) {
+        for (var k = 0; k < elegidos.length; k++) {
+          if (elegidos[k] && valores[i][k] !== elegidos[k]) {
+            ver = false;
+            break;
+          }
+        }
+      }
       filas[i].style.display = ver ? '' : 'none';
       if (ver) visibles++;
     }
@@ -89,6 +122,7 @@
     clearTimeout(temporizador);
     temporizador = setTimeout(filtrar, 120);
   });
+  selects.forEach(function (s) { s.addEventListener('change', filtrar); });
 })();
 </script>
 {% endif %}

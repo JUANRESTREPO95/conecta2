@@ -271,6 +271,9 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE empresas ADD COLUMN cartera_url TEXT",
         "ALTER TABLE empresas ADD COLUMN cartera_columnas TEXT",
         "ALTER TABLE empresas ADD COLUMN cartera_columna_vendedor TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_filtros TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_columna_saldo TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_saldo_minimo REAL DEFAULT 0",
     ):
         try:
             con.execute(alter)

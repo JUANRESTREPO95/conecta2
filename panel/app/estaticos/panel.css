@@ -289,16 +289,53 @@ table.tabla-catalogo form.inline button { min-width: 38px; height: 34px;
   padding: 0 8px; font-size: 1rem; line-height: 1; border-radius: 8px;
   display: inline-flex; align-items: center; justify-content: center; }
 
-/* ---- cartera: filtro y tabla de la hoja ---- */
+/* ---- cartera: filtro, filtros rápidos y tabla sin scroll horizontal ---- */
 .cartera-filtro { display: block; width: 100%; margin: .3rem 0 .8rem;
   padding: .65rem .9rem; border: 2px solid #d7cfc9; border-radius: 10px;
   font: inherit; background: #fff; }
 .cartera-filtro:focus { outline: none; border-color: var(--primario);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primario) 25%, #fff); }
+
+.cartera-filtros { display: flex; flex-wrap: wrap; gap: .55rem 1rem;
+  margin: 0 0 .9rem; }
+.cartera-filtros label { display: flex; flex-direction: column; gap: 2px;
+  margin: 0; font-size: .7rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--texto-suave); }
+.cartera-filtros select { min-width: 150px; max-width: 240px;
+  padding: .45rem .6rem; border: 2px solid #d7cfc9; border-radius: 9px;
+  font: inherit; font-size: .92rem; font-weight: 500; text-transform: none;
+  letter-spacing: 0; color: var(--texto); background: #fff; }
+.cartera-filtros select:focus { outline: none; border-color: var(--primario); }
+
+/* la tabla ocupa el ancho disponible: las celdas parten el texto en varias
+   líneas en vez de sacar un scroll horizontal */
 .cartera-marco { background: #fff; border: 2px solid var(--borde);
-  border-radius: 14px; overflow-x: auto; }
-.cartera-tabla { border: 0; border-radius: 0; }
-.cartera-tabla th, .cartera-tabla td { white-space: nowrap; }
+  border-radius: 14px; overflow: hidden; }
+.cartera-tabla { border: 0; border-radius: 0; table-layout: fixed; width: 100%; }
+.cartera-tabla th, .cartera-tabla td { white-space: normal;
+  overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
+.cartera-tabla th { font-size: .72rem; }
+
+/* en el celular cada registro es una tarjeta con el título de cada dato */
+@media (max-width: 640px) {
+  .cartera-marco { border: 0; border-radius: 0; background: transparent; }
+  .cartera-tabla { display: block; overflow: visible; white-space: normal;
+    border: 0; background: transparent; table-layout: auto; }
+  .cartera-tabla thead { display: none; }
+  .cartera-tabla tbody { display: block; }
+  .cartera-tabla tr { display: block; background: #fff;
+    border: 2px solid var(--borde); border-radius: 12px; margin: 0 0 .7rem;
+    padding: .45rem .8rem; }
+  .cartera-tabla tbody td { display: flex; gap: .6rem; min-width: 0;
+    position: static; border: 0; padding: .3rem 0;
+    background: transparent !important; }
+  .cartera-tabla td::before { content: attr(data-col); flex: 0 0 38%;
+    font-weight: 700; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .03em; color: var(--texto-suave); }
+  .cartera-tabla td.dato-filtro { display: none; }
+  .cartera-tabla tbody tr:hover td,
+  .cartera-tabla tbody tr:nth-child(even) td { background: transparent !important; }
+}
 
 /* ---- configuración: columnas de la hoja de cartera ---- */
 .cartera-columnas { display: grid; grid-template-columns: 1fr 1fr;
