@@ -1339,11 +1339,8 @@ def requiere_rol(request: Request, roles):
     return usuario
 
 
-@app.get("/empresas")
-def empresas(request: Request):
-    usuario = requiere_rol(request, ("super",))
-    if usuario is None:
-        return RedirectResponse("/inicio", status_code=303)
+def datos_empresas() -> dict:
+    """Empresas con sus vendedores, última sincronización y token del agente."""
     lista = db.filas("SELECT e.*, (SELECT COUNT(*) FROM usuarios u WHERE "
                      "u.empresa_id = e.id AND u.rol = 'vendedor') AS vendedores "
                      "FROM empresas e ORDER BY e.id")
@@ -1352,12 +1349,21 @@ def empresas(request: Request):
     tokens = {a["empresa_id"]: seguridad.descifrar_clave(a["clave_visible"])
               for a in db.filas("SELECT empresa_id, clave_visible FROM usuarios "
                                 "WHERE rol = 'agente'")}
+    return {"lista": lista, "sincs": sincs, "tokens": tokens}
+
+
+@app.get("/empresas")
+def empresas(request: Request):
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/inicio", status_code=303)
     return respuesta(request, "empresas.html",
-                     {"lista": lista, "sincs": sincs, "tokens": tokens})
+                     {**datos_empresas(), "volver": "/empresas"})
 
 
 @app.post("/empresas/token")
-def empresas_token(request: Request, empresa_id: int = Form(...)):
+def empresas_token(request: Request, empresa_id: int = Form(...),
+                   volver: str = Form("/empresas")):
     """Crea o renueva el token del agente de una empresa (lo anula anterior)."""
     import hashlib
     import secrets as _secrets
@@ -1378,17 +1384,22 @@ def empresas_token(request: Request, empresa_id: int = Form(...)):
                     "rol, clave_visible) VALUES (?, 'AGENTE', ?, 'Agente de A2', "
                     "'agente', ?)", (empresa_id, huella,
                                      seguridad.cifrar_clave(token)))
+    if volver.startswith("/configuracion"):
+        return RedirectResponse(f"/configuracion?empresa={empresa_id}&ok=token",
+                                status_code=303)
     return RedirectResponse("/empresas?ok=token", status_code=303)
 
 
 @app.post("/empresas/crear")
-def empresas_crear(request: Request, nombre: str = Form(...)):
+def empresas_crear(request: Request, nombre: str = Form(...),
+                   volver: str = Form("/empresas")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
     if nombre.strip():
         db.ejecutar("INSERT INTO empresas (nombre) VALUES (?)", (nombre.strip(),))
-    return RedirectResponse("/empresas", status_code=303)
+    destino = volver if volver.startswith("/") else "/empresas"
+    return RedirectResponse(f"{destino}?ok=empresa", status_code=303)
 
 
 # ---------- apps habilitadas (tokens de la app Android) ----------
@@ -1681,7 +1692,9 @@ def configuracion(request: Request):
     if pedir:
         fija_empresa_activa(usuario, int(pedir))
     empresa = empresa_del(usuario, pedir and int(pedir))
-    return respuesta(request, "configuracion.html", {"e": empresa})
+    return respuesta(request, "configuracion.html",
+                     {"e": empresa, **datos_empresas(),
+                      "volver": "/configuracion"})
 
 
 def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> tuple[str, str]:

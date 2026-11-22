@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h1>Configuración del negocio</h1>
+<h2>Empresas</h2>
+{% include "_empresas.html" %}
 {% if e is none %}<p class="error">Empresa no encontrada.</p>
 {% else %}
-{% if request.query_params.get('ok') %}<p class="ok">Guardado.</p>{% endif %}
+{% if request.query_params.get('ok') == '1' %}<p class="ok">Guardado.</p>{% endif %}
 {% if request.query_params.get('error') %}<p class="error">{{ request.query_params.get('error') }}</p>{% endif %}
-<p><a class="boton-enlace" href="/empresas">Administrar empresas</a></p>
 
 <div class="caja caja-ancha">
 <form method="post" action="/configuracion" enctype="multipart/form-data">
