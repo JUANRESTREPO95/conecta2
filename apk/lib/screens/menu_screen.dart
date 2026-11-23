@@ -69,21 +69,43 @@ class MenuScreen extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 30),
-                          _tarjeta(
-                            titulo: 'Pedidos',
-                            subtitulo: 'Catálogo, carrito y pedidos',
-                            icono: Icons.receipt_long,
-                            color: appState.colorPrimario,
-                            onTap: appState.irAPedidos,
-                          ),
-                          const SizedBox(height: 14),
-                          _tarjeta(
-                            titulo: 'Cartera',
-                            subtitulo: 'Saldos de tus clientes',
-                            icono: Icons.account_balance_wallet,
-                            color: appState.colorCartera,
-                            onTap: appState.irACartera,
-                          ),
+                          // solo se muestran las secciones que el super
+                          // usuario activó en el panel
+                          if (appState.pedidosActivo)
+                            _tarjeta(
+                              titulo: 'Pedidos',
+                              subtitulo: 'Catálogo, carrito y pedidos',
+                              icono: Icons.receipt_long,
+                              color: appState.colorPrimario,
+                              onTap: appState.irAPedidos,
+                            ),
+                          if (appState.pedidosActivo && appState.carteraActiva)
+                            const SizedBox(height: 14),
+                          if (appState.carteraActiva)
+                            _tarjeta(
+                              titulo: 'Cartera',
+                              subtitulo: 'Saldos de tus clientes',
+                              icono: Icons.account_balance_wallet,
+                              color: appState.colorCartera,
+                              onTap: appState.irACartera,
+                            ),
+                          if (!appState.pedidosActivo &&
+                              !appState.carteraActiva) ...[
+                            const Text(
+                              'No hay información para mostrar.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Pídele al administrador que active Pedidos o '
+                              'Cartera desde el panel.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 12, color: Color(0xFF6B7280)),
+                            ),
+                          ],
                         ],
                       ),
                     ),

@@ -106,6 +106,18 @@ class AppState extends ChangeNotifier {
     return DateTime.now().difference(ultima).inHours < 72;
   }
 
+  /// El super usuario activa o apaga cada sección desde el panel.
+  /// Si la app todavía no trae el dato, se toman como activas.
+  bool get pedidosActivo {
+    final valor = empresa?['pedidos_activo'];
+    return valor == null ? true : valor == 1;
+  }
+
+  bool get carteraActiva {
+    final valor = empresa?['cartera_activa'];
+    return valor == null ? true : valor == 1;
+  }
+
   // ---------- navegación principal ----------
 
   void irAlMenu() {
@@ -114,11 +126,13 @@ class AppState extends ChangeNotifier {
   }
 
   void irAPedidos() {
+    if (!pedidosActivo) return;
     seccion = 'pedidos';
     notifyListeners();
   }
 
   void irACartera() {
+    if (!carteraActiva) return;
     seccion = 'cartera';
     notifyListeners();
   }

@@ -63,9 +63,13 @@ class _Raiz extends StatelessWidget {
       // acceso de configuración sin login: puede moverse por las secciones
       switch (appState.seccion) {
         case 'pedidos':
-          return const HomeScreen();
+          return appState.pedidosActivo
+              ? const HomeScreen()
+              : const MenuScreen();
         case 'cartera':
-          return const CarteraScreen();
+          return appState.carteraActiva
+              ? const CarteraScreen()
+              : const MenuScreen();
         default:
           return const MenuScreen();
       }
@@ -90,9 +94,13 @@ class _Raiz extends StatelessWidget {
     if (!appState.logueado) return const LoginScreen();
     switch (appState.seccion) {
       case 'pedidos':
-        return const HomeScreen();
+        return appState.pedidosActivo
+            ? const HomeScreen()
+            : const MenuScreen();
       case 'cartera':
-        return const CarteraScreen();
+        return appState.carteraActiva
+            ? const CarteraScreen()
+            : const MenuScreen();
       default:
         return const MenuScreen();
     }

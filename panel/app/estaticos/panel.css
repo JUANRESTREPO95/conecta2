@@ -240,8 +240,9 @@ textarea { width: 100%; height: 96px; min-height: 96px; max-height: 96px;
 #caja-cliente-nuevo button { margin-top: 10px; }
 
 /* ---- menú de dos secciones (Pedidos / Cartera) ---- */
-.menu-secciones { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
-  margin-top: 1.1rem; }
+.menu-secciones { display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem; margin-top: 1.1rem; }
 .menu-tarjeta { display: flex; flex-direction: column; gap: .35rem;
   padding: 1.2rem 1.3rem; background: #fff; border: 2px solid var(--borde);
   border-radius: 16px; text-decoration: none; color: var(--texto);

@@ -27,6 +27,23 @@
     </label>
     {% if e.logo %}<p class="sub">Logo actual: <img src="{{ e.logo }}" alt="logo" style="height:34px;vertical-align:middle"> &nbsp;
       <label style="font-weight:400"><input type="checkbox" name="quitar_logo" value="1"> Quitar logo</label></p>{% endif %}
+
+    <p class="sub" style="margin:1rem 0 .2rem">Secciones que ven administradores y vendedores</p>
+    <label>Pedidos
+      <select name="pedidos_activo">
+        <option value="1" {% if e.pedidos_activo in (None, 1, '1') %}selected{% endif %}>Activado</option>
+        <option value="" {% if e.pedidos_activo == 0 %}selected{% endif %}>Desactivado</option>
+      </select>
+    </label>
+    <label>Cartera
+      <select name="cartera_activa">
+        <option value="1" {% if e.cartera_activa in (None, 1, '1') %}selected{% endif %}>Activado</option>
+        <option value="" {% if e.cartera_activa == 0 %}selected{% endif %}>Desactivado</option>
+      </select>
+    </label>
+    <p class="sub">El super usuario siempre ve las dos, aunque estén apagadas.
+      Si apagas una, los administradores y vendedores no la ven ni pueden entrar
+      (en el panel y en la app).</p>
   </div>
 
   <div class="config-columnas">
@@ -186,29 +203,41 @@
       <p class="sub" style="margin-top:-6px">Cada una aparece como un desplegable
         arriba de la tabla (por ejemplo Ciudad o Estatus).</p>
 
-      <label>Columna del saldo
-        <select name="cartera_columna_saldo" id="cartera-col-saldo">
-          <option value="">Sin columna de saldo</option>
-          {% for c in columnas_hoja %}
-          <option value="{{ c }}" {% if e.cartera_columna_saldo == c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
+      <label>Saldo en Cartera
+        <select name="cartera_usar_saldo" id="cartera-usar-saldo"
+                onchange="mostrarSaldoCartera()">
+          <option value="1" {% if e.cartera_usar_saldo in (None, 1, '1') %}selected{% endif %}>Activado: columna, mínimo y total</option>
+          <option value="" {% if e.cartera_usar_saldo == 0 %}selected{% endif %}>Desactivado</option>
         </select>
       </label>
-      <label>Mostrar saldos desde
-        <input name="cartera_saldo_minimo" id="cartera-saldo-minimo" type="text"
-               inputmode="decimal" placeholder="0 = mostrar todos"
-               value="{% if e.cartera_saldo_minimo %}{{ e.cartera_saldo_minimo|int }}{% endif %}">
-      </label>
-      <p class="sub" style="margin-top:-6px">Se ocultan las filas cuyo saldo sea
-        menor a esa cantidad. Escribe los miles con punto (ej. 1.000.000).</p>
-      <label>Total del saldo arriba de la tabla
-        <select name="cartera_mostrar_total">
-          <option value="1" {% if e.cartera_mostrar_total in (None, 1, '1') %}selected{% endif %}>Mostrar</option>
-          <option value="" {% if e.cartera_mostrar_total == 0 %}selected{% endif %}>No mostrar</option>
-        </select>
-      </label>
-      <p class="sub" style="margin-top:-6px">Muestra la suma de los saldos de las
-        filas visibles, y se actualiza al usar la búsqueda o los filtros.</p>
+      <p class="sub" style="margin-top:-6px">Al desactivarlo, la columna "Saldo"
+        se sigue mostrando si la marcas arriba; solo deja de usarse para el
+        mínimo y la suma.</p>
+      <div id="caja-saldo-cartera">
+        <label>Columna del saldo
+          <select name="cartera_columna_saldo" id="cartera-col-saldo">
+            <option value="">Sin columna de saldo</option>
+            {% for c in columnas_hoja %}
+            <option value="{{ c }}" {% if e.cartera_columna_saldo == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Mostrar saldos desde
+          <input name="cartera_saldo_minimo" id="cartera-saldo-minimo" type="text"
+                 inputmode="decimal" placeholder="0 = mostrar todos"
+                 value="{% if e.cartera_saldo_minimo %}{{ e.cartera_saldo_minimo|int }}{% endif %}">
+        </label>
+        <p class="sub" style="margin-top:-6px">Se ocultan las filas cuyo saldo sea
+          menor a esa cantidad. Escribe los miles con punto (ej. 1.000.000).</p>
+        <label>Total del saldo arriba de la tabla
+          <select name="cartera_mostrar_total">
+            <option value="1" {% if e.cartera_mostrar_total in (None, 1, '1') %}selected{% endif %}>Mostrar</option>
+            <option value="" {% if e.cartera_mostrar_total == 0 %}selected{% endif %}>No mostrar</option>
+          </select>
+        </label>
+        <p class="sub" style="margin-top:-6px">Muestra la suma de los saldos de las
+          filas visibles, y se actualiza al usar la búsqueda o los filtros.</p>
+      </div>
     </div>
   </div>
 
@@ -327,6 +356,13 @@ function mostrarMinimo() {
     (m === 'personalizado') ? 'block' : 'none';
 }
 mostrarMinimo();
+function mostrarSaldoCartera() {
+  var sel = document.getElementById('cartera-usar-saldo');
+  var caja = document.getElementById('caja-saldo-cartera');
+  if (!sel || !caja) return;
+  caja.style.display = sel.value === '1' ? '' : 'none';
+}
+mostrarSaldoCartera();
 </script>
 <script>
 (function () {

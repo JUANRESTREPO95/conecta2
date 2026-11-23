@@ -53,6 +53,45 @@ app.mount("/logos", StaticFiles(directory=str(config.LOGOS)), name="logos")
 plantillas = Jinja2Templates(directory=str(config.PLANTILLAS))
 
 
+@app.middleware("http")
+async def bloqueo_de_secciones(request: Request, call_next):
+    """Admin y vendedores solo entran a las secciones que el super activó.
+
+    El super siempre pasa. Si la sección está apagada se redirige al inicio
+    (o se responde 403 a las búsquedas que se hacen sin recargar).
+    """
+    ruta = request.url.path
+    seccion = None
+    if ruta == "/cartera" or ruta.startswith("/cartera/"):
+        seccion = "cartera"
+    elif (ruta == "/catalogo" or ruta.startswith("/catalogo/") or
+          ruta == "/pedido" or ruta.startswith("/pedido/")):
+        seccion = "pedidos"
+    if seccion is None:
+        return await call_next(request)
+    usuario = usuario_actual(request)
+    if usuario is None or usuario["rol"] == "super":
+        return await call_next(request)
+    empresa = empresa_del(usuario, None)
+    if empresa is not None:
+        activa = bandera(empresa["cartera_activa"] if seccion == "cartera"
+                         else empresa["pedidos_activo"])
+        if not activa:
+            if request.headers.get("x-requested-with") == "fetch":
+                return Response(json.dumps(
+                    {"ok": False, "mensaje": "Sección desactivada."}),
+                    status_code=403, media_type="application/json")
+            return RedirectResponse("/inicio", status_code=303)
+    return await call_next(request)
+
+
+def bandera(valor) -> bool:
+    """Interruptor 0/1 de la empresa; si está vacío se toma como activo."""
+    if valor is None:
+        return True
+    return str(valor).strip().lower() not in ("0", "", "false")
+
+
 def num(v) -> str:
     """Número sin decimales y con separador de miles (1.234.567)."""
     if v is None or v == "":
@@ -518,6 +557,8 @@ def app_datos(request: Request):
         "cliente_predeterminado_codigo": empresa["cliente_predeterminado_codigo"],
         "cliente_predeterminado_nombre": empresa["cliente_predeterminado_nombre"],
         "cliente_predeterminado_nit": empresa["cliente_predeterminado_nit"],
+        "pedidos_activo": empresa["pedidos_activo"],
+        "cartera_activa": empresa["cartera_activa"],
     }
     return {
         "ok": True,
@@ -600,6 +641,8 @@ def app_cartera(request: Request):
     empresa = _empresa_app(tok)
     if empresa is None or not empresa["activa"]:
         return _json_error("empresa inactiva", 403)
+    if not bandera(empresa["cartera_activa"]):
+        return _json_error("sección desactivada", 403)
     usuario = sesion_app(request, empresa["id"])
     if usuario is None:
         return _json_error("sesión vencida", 401)
@@ -1358,8 +1401,16 @@ def inicio(request: Request):
         usuario = protege(request)
     except Redirige:
         return RedirectResponse("/login", status_code=303)
+    empresa = empresa_del(usuario, None)
+    es_super = usuario["rol"] == "super"
+    ver_pedidos = es_super or (empresa is not None and
+                               bandera(empresa["pedidos_activo"]))
+    ver_cartera = es_super or (empresa is not None and
+                               bandera(empresa["cartera_activa"]))
     return respuesta(request, "inicio.html",
-                     {"hora": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                     {"hora": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                      "ver_pedidos": ver_pedidos,
+                      "ver_cartera": ver_cartera})
 
 
 def datos_cartera(usuario, empresa, forzar: bool = False) -> dict:
@@ -1376,7 +1427,8 @@ def datos_cartera(usuario, empresa, forzar: bool = False) -> dict:
         indices = cartera_hoja.indices_visibles(empresa, datos["columnas"])
         columnas = [datos["columnas"][i] for i in indices]
         visibles = cartera_hoja.filas_para(usuario, empresa, datos)
-        indice_saldo = cartera_hoja.indice_saldo(empresa, datos["columnas"])
+        indice_saldo = (cartera_hoja.indice_saldo(empresa, datos["columnas"])
+                        if bandera(empresa["cartera_usar_saldo"]) else -1)
         if indice_saldo >= 0:
             hay_saldo = True
             visibles = cartera_hoja.filas_con_saldo(
@@ -1427,7 +1479,7 @@ def cartera(request: Request):
     resultado = datos_cartera(usuario, empresa, forzar)
     return respuesta(request, "cartera.html", {
         "empresa": empresa, "sin_empresa": False, **resultado,
-        "mostrar_total": bool(empresa["cartera_mostrar_total"]),
+        "mostrar_total": bandera(empresa["cartera_mostrar_total"]),
         "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
         "hay_vendedor_col": bool(resultado["columnas_todas"]) and
         cartera_hoja.indice_vendedor(empresa, resultado["columnas_todas"]) >= 0,
@@ -1888,7 +1940,10 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        cartera_filtros: list[str] = Form([]),
                        cartera_columna_saldo: str = Form(""),
                        cartera_saldo_minimo: str = Form(""),
-                       cartera_mostrar_total: str = Form("1")):
+                       cartera_mostrar_total: str = Form("1"),
+                       pedidos_activo: str = Form("1"),
+                       cartera_activa: str = Form("1"),
+                       cartera_usar_saldo: str = Form("1")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
@@ -1922,6 +1977,9 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     if minimo_saldo < 0:
         minimo_saldo = 0.0
     mostrar_total = 1 if str(cartera_mostrar_total or "").strip() == "1" else 0
+    pedidos_on = 1 if str(pedidos_activo or "").strip() == "1" else 0
+    cartera_on = 1 if str(cartera_activa or "").strip() == "1" else 0
+    usar_saldo = 1 if str(cartera_usar_saldo or "").strip() == "1" else 0
     if cartera_destino != url_previa:
         cartera_hoja.borrar_cache(empresa_id)
         if not columnas_cartera:
@@ -1971,7 +2029,9 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "reinicio_numero = ?, digitos_numero = ?, cartera_url = ?, "
                 "cartera_columnas = ?, cartera_columna_vendedor = ?, "
                 "cartera_filtros = ?, cartera_columna_saldo = ?, "
-                "cartera_saldo_minimo = ?, cartera_mostrar_total = ? "
+                "cartera_saldo_minimo = ?, cartera_mostrar_total = ?, "
+                "pedidos_activo = ?, cartera_activa = ?, "
+                "cartera_usar_saldo = ? "
                 "WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_cartera, color_primario, color_letra, logo,
@@ -1985,6 +2045,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                  json.dumps(filtros_cartera, ensure_ascii=False),
                  (cartera_columna_saldo or "").strip() or None,
                  minimo_saldo, mostrar_total,
+                 pedidos_on, cartera_on, usar_saldo,
                  empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
     if error_logo or error_cartera:
