@@ -2,7 +2,7 @@
 {% block contenido %}
 <div id="login-caja">
   <h1>Conecta2 — primer arranque</h1>
-  <p>Crear el <strong>super usuario</strong> que administrará todo el sistema.</p>
+  <p>Crear el <strong>usuario administrador</strong> que gestionará el sistema.</p>
   {% if request.query_params.get('error') %}
     <p class="error">Revise los datos: claves iguales y de mínimo 6 caracteres.</p>
   {% endif %}
@@ -19,7 +19,7 @@
     <label>Repita la clave
       <input name="clave2" type="password" required>
     </label>
-    <button type="submit">Crear super usuario</button>
+    <button type="submit">Crear usuario administrador</button>
   </form>
 </div>
 {% endblock %}
