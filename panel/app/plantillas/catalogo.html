@@ -3,7 +3,7 @@
 <h1>Catálogo{% if empresa %} — {{ empresa.nombre }}{% endif %}</h1>
 {% if request.query_params.get('aviso') == 'sin_stock' %}<p class="error">No hay existencia suficiente de ese producto.</p>{% endif %}
 {% if sin_empresa %}
-<p class="error">Aún no hay empresas. Créalas en <a href="/empresas">Empresas</a> si eres el super usuario.</p>
+<p class="error">Aún no hay empresas configuradas.</p>
 {% else %}
 <p class="sub" id="resumen">
   {{ total }} productos visibles. Depósito: <strong>

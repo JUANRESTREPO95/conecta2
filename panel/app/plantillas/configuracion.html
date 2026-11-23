@@ -41,9 +41,8 @@
         <option value="0" {% if e.cartera_activa == 0 %}selected{% endif %}>Desactivado</option>
       </select>
     </label>
-    <p class="sub">El super usuario siempre ve las dos, aunque estén apagadas.
-      Si apagas una, los administradores y vendedores no la ven ni pueden entrar
-      (en el panel y en la app).</p>
+    <p class="sub">Si apagas una sección, no se muestra ni se puede entrar a
+      ella en el panel ni en la app. Las dos apagadas dejan solo el inicio.</p>
   </div>
 
   <div class="config-columnas">
@@ -188,7 +187,7 @@
         </select>
       </label>
       <p class="sub">El vendedor solo verá las filas donde esta columna
-        coincida con su código o su nombre de A2. Admin y super ven todo.</p>
+        coincida con su código o su nombre de A2. Los administradores ven todo.</p>
 
       <p class="sub" style="margin:.9rem 0 .2rem">Columnas con filtro rápido en Cartera</p>
       <div class="cartera-columnas" id="cartera-filtros-cols">

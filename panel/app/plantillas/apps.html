@@ -19,8 +19,8 @@
             style="width:100%;font-family:Consolas,monospace" onclick="this.select()"></p>
   <button type="button" onclick="copiarToken()">Copiar token</button>
   <p class="sub">Pégalo en la app en el primer arranque.
-    {% if usuario.rol == 'super' %}Como super usuario también lo verás en la
-    lista de abajo.{% else %}Si se pierde, elimina esta app y crea otra.{% endif %}</p>
+    {% if usuario.rol == 'super' %}También lo verás en la lista de abajo.
+    {% else %}Si se pierde, elimina esta app y crea otra.{% endif %}</p>
 </div>
 {% endif %}
 
@@ -90,7 +90,7 @@
   Los datos que ya estén guardados en el teléfono no se pueden borrar desde
   aquí; la app deja de funcionar cuando intenta reconectar.</p>
 {% if usuario.rol == 'super' %}
-<p class="sub">Solo el super usuario ve estos tokens. Los que se crearon antes
+<p class="sub">Estos tokens se muestran solo aquí. Los que se crearon antes
   de esta versión no se pueden recuperar: si necesitas uno, elimina esa app y
   crea otra.</p>
 {% endif %}
