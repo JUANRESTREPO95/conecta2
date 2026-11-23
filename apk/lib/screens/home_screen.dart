@@ -68,15 +68,27 @@ class _HomeScreenState extends State<HomeScreen>
     return AnimatedBuilder(
       animation: appState,
       builder: (context, _) {
-        return Scaffold(
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) appState.irAlMenu();
+          },
+          child: Scaffold(
           appBar: AppBar(
             backgroundColor: primario,
             foregroundColor: letra,
+            leading: appState.unaSolaSeccion
+                ? null
+                : IconButton(
+                    tooltip: 'Menú',
+                    onPressed: appState.irAlMenu,
+                    icon: const Icon(Icons.arrow_back),
+                  ),
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  appState.nombreEmpresa,
+                  '${appState.nombreEmpresa} Pedidos',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800),
                 ),
@@ -123,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen>
               tabs: const [
                 Tab(text: 'Catálogo'),
                 Tab(text: 'Pedido'),
-                Tab(text: 'Pedidos'),
+                Tab(text: 'Historial'),
                 Tab(text: 'Ajustes'),
               ],
             ),
@@ -139,6 +151,7 @@ class _HomeScreenState extends State<HomeScreen>
               PedidosTab(onIrAlPedido: () => _tab.animateTo(1)),
               const AjustesTab(),
             ],
+          ),
           ),
         );
       },
