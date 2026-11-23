@@ -32,13 +32,13 @@
     <label>Pedidos
       <select name="pedidos_activo">
         <option value="1" {% if e.pedidos_activo in (None, 1, '1') %}selected{% endif %}>Activado</option>
-        <option value="" {% if e.pedidos_activo == 0 %}selected{% endif %}>Desactivado</option>
+        <option value="0" {% if e.pedidos_activo == 0 %}selected{% endif %}>Desactivado</option>
       </select>
     </label>
     <label>Cartera
       <select name="cartera_activa">
         <option value="1" {% if e.cartera_activa in (None, 1, '1') %}selected{% endif %}>Activado</option>
-        <option value="" {% if e.cartera_activa == 0 %}selected{% endif %}>Desactivado</option>
+        <option value="0" {% if e.cartera_activa == 0 %}selected{% endif %}>Desactivado</option>
       </select>
     </label>
     <p class="sub">El super usuario siempre ve las dos, aunque estén apagadas.
@@ -207,7 +207,7 @@
         <select name="cartera_usar_saldo" id="cartera-usar-saldo"
                 onchange="mostrarSaldoCartera()">
           <option value="1" {% if e.cartera_usar_saldo in (None, 1, '1') %}selected{% endif %}>Activado: columna, mínimo y total</option>
-          <option value="" {% if e.cartera_usar_saldo == 0 %}selected{% endif %}>Desactivado</option>
+          <option value="0" {% if e.cartera_usar_saldo == 0 %}selected{% endif %}>Desactivado</option>
         </select>
       </label>
       <p class="sub" style="margin-top:-6px">Al desactivarlo, la columna "Saldo"
@@ -232,7 +232,7 @@
         <label>Total del saldo arriba de la tabla
           <select name="cartera_mostrar_total">
             <option value="1" {% if e.cartera_mostrar_total in (None, 1, '1') %}selected{% endif %}>Mostrar</option>
-            <option value="" {% if e.cartera_mostrar_total == 0 %}selected{% endif %}>No mostrar</option>
+            <option value="0" {% if e.cartera_mostrar_total == 0 %}selected{% endif %}>No mostrar</option>
           </select>
         </label>
         <p class="sub" style="margin-top:-6px">Muestra la suma de los saldos de las
