@@ -151,11 +151,13 @@ class _CarteraScreenState extends State<CarteraScreen>
             appBar: AppBar(
               backgroundColor: primario,
               foregroundColor: letra,
-              leading: IconButton(
-                tooltip: 'Menú',
-                onPressed: appState.irAlMenu,
-                icon: const Icon(Icons.arrow_back),
-              ),
+              leading: appState.unaSolaSeccion
+                  ? null
+                  : IconButton(
+                      tooltip: 'Menú',
+                      onPressed: appState.irAlMenu,
+                      icon: const Icon(Icons.arrow_back),
+                    ),
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

@@ -56,23 +56,24 @@ class Conecta2App extends StatelessWidget {
 class _Raiz extends StatelessWidget {
   const _Raiz();
 
+  /// Pantalla según la sección, sin pasar por el menú cuando solo hay una
+  /// sección activa (el super apaga la otra desde el panel).
+  Widget _pantalla() {
+    final pedidos = appState.pedidosActivo;
+    final cartera = appState.carteraActiva;
+    if (appState.seccion == 'pedidos' && pedidos) return const HomeScreen();
+    if (appState.seccion == 'cartera' && cartera) return const CarteraScreen();
+    if (pedidos && !cartera) return const HomeScreen();
+    if (cartera && !pedidos) return const CarteraScreen();
+    return const MenuScreen();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!appState.iniciado) return const CargandoPantalla();
     if (appState.modoConfig) {
       // acceso de configuración sin login: puede moverse por las secciones
-      switch (appState.seccion) {
-        case 'pedidos':
-          return appState.pedidosActivo
-              ? const HomeScreen()
-              : const MenuScreen();
-        case 'cartera':
-          return appState.carteraActiva
-              ? const CarteraScreen()
-              : const MenuScreen();
-        default:
-          return const MenuScreen();
-      }
+      return _pantalla();
     }
     if (!appState.configurado) return const LoginScreen();
     if (appState.appRevocada) {
@@ -92,18 +93,7 @@ class _Raiz extends StatelessWidget {
       );
     }
     if (!appState.logueado) return const LoginScreen();
-    switch (appState.seccion) {
-      case 'pedidos':
-        return appState.pedidosActivo
-            ? const HomeScreen()
-            : const MenuScreen();
-      case 'cartera':
-        return appState.carteraActiva
-            ? const CarteraScreen()
-            : const MenuScreen();
-      default:
-        return const MenuScreen();
-    }
+    return _pantalla();
   }
 }
 

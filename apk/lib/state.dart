@@ -118,6 +118,19 @@ class AppState extends ChangeNotifier {
     return valor == null ? true : valor == 1;
   }
 
+  /// Con una sola sección activa no tiene sentido mostrar el menú.
+  bool get unaSolaSeccion => pedidosActivo != carteraActiva;
+
+  /// Si solo hay una sección activa, entra directo a ella sin pasar por el menú.
+  void ajustarSeccion() {
+    if (seccion != 'menu') return;
+    if (pedidosActivo && !carteraActiva) {
+      seccion = 'pedidos';
+    } else if (carteraActiva && !pedidosActivo) {
+      seccion = 'cartera';
+    }
+  }
+
   // ---------- navegación principal ----------
 
   void irAlMenu() {
@@ -217,6 +230,7 @@ class AppState extends ChangeNotifier {
     } finally {
       paso = 'Listo';
       iniciado = true;
+      ajustarSeccion();
       notifyListeners();
     }
   }
@@ -451,6 +465,7 @@ class AppState extends ChangeNotifier {
       if (emp is Map) {
         empresa = emp.cast<String, dynamic>();
         await db.setConfig('empresa', jsonEncode(empresa));
+        ajustarSeccion();
       }
       ultimoSyncServidor = datos['servidor']?.toString();
       await db.setConfig('ultimo_sync', ultimoSyncServidor);
@@ -509,6 +524,7 @@ class AppState extends ChangeNotifier {
     online = true;
     modoConfig = false;
     seccion = 'menu';
+    ajustarSeccion();
     notifyListeners();
     await procesarCola();
   }
