@@ -1365,14 +1365,18 @@ def cartera(request: Request):
                     "opciones": cartera_hoja.opciones_filtro(visibles, i)}
                    for i in indices_filtro]
         for fila in visibles:
+            saldo = (cartera_hoja.a_numero(fila[indice_saldo])
+                     if 0 <= indice_saldo < len(fila) else None)
             filas.append({
                 "celdas": [fila[i] if i < len(fila) else "" for i in indices],
                 "filtros": [fila[i] if i < len(fila) else ""
-                            for i in indices_filtro]})
+                            for i in indices_filtro],
+                "saldo": saldo})
     return respuesta(request, "cartera.html", {
         "empresa": empresa, "sin_empresa": False,
         "columnas": columnas, "filas": filas, "filtros": filtros,
         "total_saldo": total_saldo, "hay_saldo": hay_saldo,
+        "mostrar_total": bool(empresa["cartera_mostrar_total"]),
         "actualizado": estado["actualizado"], "error": estado["error"],
         "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
         "hay_vendedor_col": bool(datos) and cartera_hoja.indice_vendedor(
@@ -1833,7 +1837,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        cartera_columna_vendedor: str = Form(""),
                        cartera_filtros: list[str] = Form([]),
                        cartera_columna_saldo: str = Form(""),
-                       cartera_saldo_minimo: str = Form("")):
+                       cartera_saldo_minimo: str = Form(""),
+                       cartera_mostrar_total: str = Form("1")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
@@ -1866,6 +1871,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     minimo_saldo = cartera_hoja.a_numero(cartera_saldo_minimo) or 0.0
     if minimo_saldo < 0:
         minimo_saldo = 0.0
+    mostrar_total = 1 if str(cartera_mostrar_total or "").strip() == "1" else 0
     if cartera_destino != url_previa:
         cartera_hoja.borrar_cache(empresa_id)
         if not columnas_cartera:
@@ -1915,7 +1921,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "reinicio_numero = ?, digitos_numero = ?, cartera_url = ?, "
                 "cartera_columnas = ?, cartera_columna_vendedor = ?, "
                 "cartera_filtros = ?, cartera_columna_saldo = ?, "
-                "cartera_saldo_minimo = ? "
+                "cartera_saldo_minimo = ?, cartera_mostrar_total = ? "
                 "WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_cartera, color_primario, color_letra, logo,
@@ -1928,7 +1934,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                  (cartera_columna_vendedor or "").strip() or None,
                  json.dumps(filtros_cartera, ensure_ascii=False),
                  (cartera_columna_saldo or "").strip() or None,
-                 minimo_saldo,
+                 minimo_saldo, mostrar_total,
                  empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
     if error_logo or error_cartera:

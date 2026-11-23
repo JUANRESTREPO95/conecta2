@@ -200,8 +200,15 @@
                value="{% if e.cartera_saldo_minimo %}{{ e.cartera_saldo_minimo|int }}{% endif %}">
       </label>
       <p class="sub" style="margin-top:-6px">Se ocultan las filas cuyo saldo sea
-        menor a esa cantidad. Arriba de la tabla se muestra el saldo total de lo
-        que queda visible.</p>
+        menor a esa cantidad.</p>
+      <label>Total del saldo arriba de la tabla
+        <select name="cartera_mostrar_total">
+          <option value="1" {% if e.cartera_mostrar_total in (None, 1, '1') %}selected{% endif %}>Mostrar</option>
+          <option value="" {% if e.cartera_mostrar_total == 0 %}selected{% endif %}>No mostrar</option>
+        </select>
+      </label>
+      <p class="sub" style="margin-top:-6px">Muestra la suma de los saldos de las
+        filas visibles, y se actualiza al usar la búsqueda o los filtros.</p>
     </div>
   </div>
 

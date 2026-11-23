@@ -24,9 +24,13 @@
   {% if puede_actualizar %} — <a href="/cartera?actualizar=1">Actualizar ahora</a>{% endif %}
   — {{ filas|length }} registro{{ '' if filas|length == 1 else 's' }}
   {%- if usuario.rol == 'vendedor' %} de tu cartera{% endif %}
-  {%- if hay_saldo and total_saldo is not none %} — Saldo total:
-  <strong>{{ total_saldo | num }}</strong>{% endif %}
 </p>
+{% if hay_saldo and mostrar_total and total_saldo is not none %}
+<div class="cartera-total">
+  <span class="cartera-total-etiqueta">Saldo total</span>
+  <strong class="cartera-total-valor" id="cartera-total-valor">{{ total_saldo | num }}</strong>
+</div>
+{% endif %}
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% if usuario.rol == 'vendedor' and not hay_vendedor_col %}
 <p class="error">La cartera todavía no está separada por vendedor. Pídele al
@@ -63,7 +67,7 @@
     <thead><tr>{% for c in columnas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
     <tbody id="cartera-filas">
     {% for f in filas %}
-      <tr>
+      <tr data-saldo="{{ f.saldo if f.saldo is not none else '' }}">
         {% for c in columnas %}<td data-col="{{ c }}">{{ f.celdas[loop.index0] }}</td>{% endfor %}
         {% for v in f.filtros %}<td class="dato-filtro" style="display:none">{{ v }}</td>{% endfor %}
       </tr>
@@ -98,10 +102,22 @@
     return Array.prototype.slice.call(f.querySelectorAll('td.dato-filtro'))
       .map(function (td) { return td.textContent.trim(); });
   });
+  // saldo total de las filas que se están viendo
+  var bloqueTotal = document.getElementById('cartera-total-valor');
+  var saldos = filas.map(function (f) {
+    var s = f.getAttribute('data-saldo');
+    if (s === null || s === '') return null;
+    var n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  });
+  function miles(v) {
+    return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
   function filtrar() {
     var q = normal(entrada.value.trim());
     var elegidos = selects.map(function (s) { return s.value; });
     var visibles = 0;
+    var suma = 0;
     for (var i = 0; i < filas.length; i++) {
       var ver = !q || textos[i].indexOf(q) !== -1;
       if (ver) {
@@ -113,12 +129,16 @@
         }
       }
       filas[i].style.display = ver ? '' : 'none';
-      if (ver) visibles++;
+      if (ver) {
+        visibles++;
+        if (saldos[i] !== null) suma += saldos[i];
+      }
     }
     if (cuenta) {
       cuenta.textContent = visibles + ' de ' + total + ' registro' +
         (total === 1 ? '' : 's') + '.';
     }
+    if (bloqueTotal) bloqueTotal.textContent = miles(suma);
   }
   var temporizador = null;
   entrada.addEventListener('input', function () {
