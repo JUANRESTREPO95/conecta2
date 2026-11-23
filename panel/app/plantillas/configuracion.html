@@ -68,6 +68,17 @@
         <input name="minimo" type="number" min="1" step="1" value="{{ e.existencia_minima or 1 }}">
       </label>
 
+      <label>Productos de A2 que entran al catálogo
+        <select name="catalogo_modo">
+          <option value="internet" {% if (e.catalogo_modo or 'internet') == 'internet' %}selected{% endif %}>Solo los activos marcados para Internet</option>
+          <option value="activos" {% if e.catalogo_modo == 'activos' %}selected{% endif %}>Todos los activos, aunque no estén marcados para Internet</option>
+          <option value="todos" {% if e.catalogo_modo == 'todos' %}selected{% endif %}>Todos, incluidos los inactivos</option>
+        </select>
+      </label>
+      <p class="sub" style="margin-top:-6px">El filtro de existencias de arriba
+        es aparte. Este decide qué productos de A2 se cargan al catálogo (en el
+        panel y en la app).</p>
+
       <label>Color principal de Pedidos
         <input name="color_primario" value="{{ e.color_primario }}" type="color">
       </label>
