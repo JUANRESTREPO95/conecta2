@@ -1,11 +1,13 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../state.dart';
 import 'tabs/ajustes_tab.dart';
 
-/// Cartera de la empresa. Por ahora el apartado queda listo (vacío) con
-/// Ajustes en la misma posición que en Pedidos; los datos se conectarán
-/// al panel más adelante. Funciona sin internet.
+/// Cartera de la empresa: la misma información que el panel.
+/// Muestra total, búsqueda, filtros y los registros del vendedor.
+/// Sin internet enseña la última copia guardada.
 class CarteraScreen extends StatefulWidget {
   const CarteraScreen({super.key});
 
@@ -16,17 +18,88 @@ class CarteraScreen extends StatefulWidget {
 class _CarteraScreenState extends State<CarteraScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
+  final TextEditingController _buscar = TextEditingController();
+  final Map<int, String> _filtros = {};
+
+  Map<String, dynamic>? _datos;
+  bool _cargando = true;
+  bool _desdeCache = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
+    Future.microtask(_cargar);
   }
 
   @override
   void dispose() {
     _tab.dispose();
+    _buscar.dispose();
     super.dispose();
+  }
+
+  // ---------- datos ----------
+
+  Future<void> _cargar() async {
+    final api = appState.api;
+    if (api == null) {
+      if (mounted) {
+        setState(() {
+          _cargando = false;
+          _error = 'Falta configurar la app.';
+        });
+      }
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _cargando = true;
+        _error = null;
+      });
+    }
+    try {
+      final datos = await api.get(
+        '/api/app/cartera',
+        timeout: const Duration(seconds: 90),
+      );
+      try {
+        await appState.db.setConfig('cartera_cache', jsonEncode(datos));
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _datos = datos;
+        _desdeCache = false;
+        _cargando = false;
+        _filtros.clear();
+      });
+    } catch (e) {
+      String? guardado;
+      try {
+        guardado = await appState.db.getConfig('cartera_cache');
+      } catch (_) {}
+      if (guardado != null && guardado.isNotEmpty) {
+        try {
+          final cache = jsonDecode(guardado);
+          if (cache is Map<String, dynamic> && mounted) {
+            setState(() {
+              _datos = cache;
+              _desdeCache = true;
+              _cargando = false;
+              _error = e.toString();
+              _filtros.clear();
+            });
+            return;
+          }
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() {
+        _cargando = false;
+        _error = e.toString();
+      });
+    }
   }
 
   Future<void> _sincronizar() async {
@@ -34,17 +107,16 @@ class _CarteraScreenState extends State<CarteraScreen>
       await appState.sincronizar();
       await appState.sincronizarHistorial();
       await appState.procesarCola();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Datos actualizados')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo sincronizar: $e')),
-        );
-      }
+    } catch (_) {}
+    await _cargar();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_desdeCache
+              ? 'Sin conexión: se muestra la última copia'
+              : 'Datos actualizados'),
+        ),
+      );
     }
   }
 
@@ -52,9 +124,12 @@ class _CarteraScreenState extends State<CarteraScreen>
     await appState.cerrarSesion();
   }
 
+  // ---------- pantalla ----------
+
   @override
   Widget build(BuildContext context) {
-    final primario = appState.colorPrimario;
+    // Cartera tiene su propio color de panel; la letra es la misma
+    final primario = appState.colorCartera;
     final letra = appState.colorLetra;
     return AnimatedBuilder(
       animation: appState,
@@ -100,8 +175,10 @@ class _CarteraScreenState extends State<CarteraScreen>
               actions: [
                 IconButton(
                   tooltip: 'Sincronizar',
-                  onPressed: appState.sincronizando ? null : _sincronizar,
-                  icon: appState.sincronizando
+                  onPressed: (appState.sincronizando || _cargando)
+                      ? null
+                      : _sincronizar,
+                  icon: (appState.sincronizando || _cargando)
                       ? SizedBox(
                           width: 20,
                           height: 20,
@@ -130,7 +207,7 @@ class _CarteraScreenState extends State<CarteraScreen>
             body: TabBarView(
               controller: _tab,
               children: [
-                _carteraVacia(),
+                _cartera(),
                 const AjustesTab(),
               ],
             ),
@@ -140,33 +217,322 @@ class _CarteraScreenState extends State<CarteraScreen>
     );
   }
 
-  Widget _carteraVacia() {
-    return Center(
-      child: Padding(
+  Widget _cartera() {
+    if (_cargando && _datos == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final datos = _datos;
+    if (datos == null) {
+      return _aviso();
+    }
+    final columnas = _lista(datos['columnas']);
+    if (columnas.isEmpty) {
+      return _aviso(
+        mensaje: datos['hay_enlace'] == true
+            ? 'La cartera todavía no tiene columnas configuradas.\n'
+                'El administrador la configura en el panel.'
+            : 'La cartera todavía no está configurada.\n'
+                'El administrador la activa en el panel.',
+      );
+    }
+
+    final todas = (datos['filas'] as List? ?? const []);
+    final filtros = (datos['filtros'] as List? ?? const [])
+        .whereType<Map>()
+        .map((f) => f.cast<String, dynamic>())
+        .toList();
+    final q = _normal(_buscar.text);
+
+    final visibles = <Map<String, dynamic>>[];
+    for (final cruda in todas) {
+      if (cruda is! Map) continue;
+      final fila = cruda.cast<String, dynamic>();
+      final celdas = _lista(fila['celdas']);
+      final valores = _lista(fila['filtros']);
+      if (q.isNotEmpty && !_normal(celdas.join(' ')).contains(q)) continue;
+      var pasa = true;
+      for (var i = 0; i < filtros.length; i++) {
+        final elegido = _filtros[i] ?? '';
+        if (elegido.isEmpty) continue;
+        if (i >= valores.length || valores[i] != elegido) {
+          pasa = false;
+          break;
+        }
+      }
+      if (pasa) visibles.add(fila);
+    }
+
+    var total = 0.0;
+    for (final f in visibles) {
+      final saldo = f['saldo'];
+      if (saldo is num) total += saldo.toDouble();
+    }
+    final mostrarTotal =
+        datos['hay_saldo'] == true && datos['mostrar_total'] == true;
+    final actualizado = (datos['actualizado'] ?? '').toString();
+
+    final cabecera = <Widget>[
+      if (mostrarTotal) _total(total),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: TextField(
+          controller: _buscar,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            hintText: 'Buscar en la cartera…',
+            prefixIcon: Icon(Icons.search),
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+      ),
+      if (filtros.isNotEmpty) _filtrosWidget(filtros),
+      if (_desdeCache) _avisoCache(actualizado),
+      if (actualizado.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(
+            'Actualizado: $actualizado',
+            style: const TextStyle(fontSize: 11, color: Colors.black45),
+          ),
+        ),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          '${visibles.length} de ${todas.length} registros',
+          style: const TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+      ),
+      if (visibles.isEmpty)
+        const Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: Text('No hay registros con ese filtro.')),
+        ),
+    ];
+
+    return RefreshIndicator(
+      onRefresh: _cargar,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        itemCount: cabecera.length + visibles.length,
+        itemBuilder: (context, i) {
+          if (i < cabecera.length) return cabecera[i];
+          return _ficha(columnas, visibles[i - cabecera.length]);
+        },
+      ),
+    );
+  }
+
+  // ---------- piezas ----------
+
+  List<String> _lista(dynamic valor) {
+    if (valor is List) return valor.map((e) => e.toString()).toList();
+    return const [];
+  }
+
+  Widget _aviso({String? mensaje}) {
+    final texto = mensaje ?? 'No se pudo cargar la cartera.\n${_error ?? ''}';
+    return RefreshIndicator(
+      onRefresh: _cargar,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(28),
+        children: [
+          const SizedBox(height: 40),
+          Icon(Icons.account_balance_wallet,
+              size: 56, color: appState.colorCartera.withAlpha(150)),
+          const SizedBox(height: 14),
+          Text(texto, textAlign: TextAlign.center),
+          const SizedBox(height: 14),
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: _cargar,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reintentar'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _avisoCache(String actualizado) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.orange.withAlpha(28),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.orange.withAlpha(90)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              actualizado.isEmpty
+                  ? 'Sin conexión: se muestra la última copia guardada.'
+                  : 'Sin conexión: última copia del $actualizado.',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _total(double total) {
+    final primario = appState.colorCartera;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: primario.withAlpha(18),
+        border: Border.all(color: primario, width: 2),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'SALDO TOTAL',
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8),
+          ),
+          Text(
+            _num(total),
+            style: TextStyle(
+                fontSize: 24, fontWeight: FontWeight.w900, color: primario),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filtrosWidget(List<Map<String, dynamic>> filtros) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (var i = 0; i < filtros.length; i++) _unFiltro(filtros[i], i),
+        ],
+      ),
+    );
+  }
+
+  Widget _unFiltro(Map<String, dynamic> filtro, int indice) {
+    final opciones = _lista(filtro['opciones']);
+    final actual = _filtros[indice] ?? '';
+    return SizedBox(
+      width: 160,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            (filtro['nombre'] ?? '').toString(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 3),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.black26),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: actual.isEmpty ? '' : actual,
+                isDense: true,
+                isExpanded: true,
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('Todos')),
+                  for (final op in opciones)
+                    DropdownMenuItem(
+                      value: op,
+                      child: Text(op, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: (valor) {
+                  setState(() {
+                    _filtros[indice] = valor ?? '';
+                  });
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ficha(List<String> columnas, Map<String, dynamic> fila) {
+    final celdas = _lista(fila['celdas']);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.account_balance_wallet,
-                size: 64, color: appState.colorPrimario.withAlpha(150)),
-            const SizedBox(height: 16),
-            Text(
-              'Cartera',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Aquí verás los saldos de tus clientes. Se conectará con el '
-              'panel cuando esté listo.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+            for (var i = 0; i < columnas.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2.5),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 108,
+                      child: Text(
+                        columnas[i],
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        i < celdas.length ? celdas[i] : '',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  /// Número con separador de miles (1.234.567), como en el panel.
+  String _num(num valor) {
+    final entero = valor.round();
+    final texto = entero.abs().toString();
+    final conPuntos = texto.replaceAllMapped(
+      RegExp(r'(\d)(?=(\d{3})+$)'),
+      (m) => '${m[1]}.',
+    );
+    return entero < 0 ? '-$conPuntos' : conPuntos;
+  }
+
+  /// Mayúsculas y sin tildes, para que "Perez" encuentre "Pérez".
+  String _normal(String texto) {
+    const acentos = 'áéíóúàèìòùäëïöüñçÁÉÍÓÚÀÈÌÒÙÄËÏÖÜÑÇ';
+    const planos = 'aeiouaeiouaeiouncAEIOUAEIOUAEIOUNC';
+    var salida = texto;
+    for (var i = 0; i < acentos.length; i++) {
+      salida = salida.replaceAll(acentos[i], planos[i]);
+    }
+    return salida.toUpperCase();
   }
 }

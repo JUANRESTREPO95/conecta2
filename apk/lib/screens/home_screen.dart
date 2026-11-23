@@ -133,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen>
                 tabs: const [
                   Tab(text: 'Catálogo'),
                   Tab(text: 'Pedido'),
-                  Tab(text: 'Pedidos'),
+                  Tab(text: 'Historial'),
                   Tab(text: 'Ajustes'),
                 ],
               ),

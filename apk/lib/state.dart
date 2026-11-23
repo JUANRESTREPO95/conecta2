@@ -80,6 +80,17 @@ class AppState extends ChangeNotifier {
     return Color(valor ?? 0xFF1E40AF);
   }
 
+  /// Color de la sección Cartera (el panel lo configura aparte de Pedidos).
+  Color get colorCartera {
+    final hex = (empresa?['color_cartera'] ?? '')
+        .toString()
+        .replaceFirst('#', '')
+        .trim();
+    if (hex.length != 6 && hex.length != 8) return colorPrimario;
+    final valor = int.tryParse(hex.length == 6 ? 'FF$hex' : hex, radix: 16);
+    return valor == null ? colorPrimario : Color(valor);
+  }
+
   Color get colorLetra {
     final hex = (empresa?['color_letra'] ?? '#ffffff').toString().replaceFirst(
       '#',

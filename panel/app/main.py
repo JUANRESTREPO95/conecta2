@@ -4,6 +4,8 @@ Multi-empresa. Roles: super (global), admin (por empresa), vendedor.
 El super usuario se crea en el primer arranque, en /primer-vez.
 """
 import json
+import threading
+import time
 from datetime import datetime
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -18,6 +20,21 @@ from app import a2, cartera_hoja, config, db, hoja, seguridad
 db.esquema()  # garantiza el esquema también cuando uvicorn recarga en modo dev
 
 app = FastAPI(title="Conecta2", docs_url=None, redoc_url=None)
+
+
+def _refresco_cartera():
+    """Baja la hoja de Cartera cada 10 minutos, aunque nadie entre al panel."""
+    time.sleep(30)  # deja que el servidor termine de arrancar
+    while True:
+        try:
+            cartera_hoja.refrescar_todas()
+        except Exception:                               # noqa: BLE001
+            pass
+        time.sleep(cartera_hoja.INTERVALO_REFRESCO)
+
+
+threading.Thread(target=_refresco_cartera, name="cartera-refresco",
+                 daemon=True).start()
 # el catálogo de la app son varios MB: se comprime la respuesta
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -569,6 +586,29 @@ def app_mis_pedidos(request: Request):
             "WHERE pedido_id = ? ORDER BY id", (p["id"],))
         salida.append(dict(p) | {"lineas": [dict(l) for l in lineas]})
     return {"ok": True, "pedidos": salida}
+
+
+@app.get("/api/app/cartera")
+def app_cartera(request: Request):
+    """Cartera para la app: mismas filas y columnas que ve el panel.
+
+    El vendedor solo recibe sus filas; admin y super reciben todo.
+    """
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    usuario = sesion_app(request, empresa["id"])
+    if usuario is None:
+        return _json_error("sesión vencida", 401)
+    resultado = datos_cartera(usuario, empresa)
+    return {"ok": True, **resultado,
+            "mostrar_total": bool(empresa["cartera_mostrar_total"]),
+            "saldo_minimo": cartera_hoja.saldo_minimo(empresa),
+            "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
+            "vendedor": usuario["codigo"]}
 
 
 @app.post("/api/app/pedido")
@@ -1322,30 +1362,12 @@ def inicio(request: Request):
                      {"hora": datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 
-@app.get("/cartera")
-def cartera(request: Request):
-    """Cartera desde la hoja de Google configurada para la empresa.
+def datos_cartera(usuario, empresa, forzar: bool = False) -> dict:
+    """Cartera ya filtrada para el usuario (la usan el panel y la app).
 
-    Admin y super ven toda la cartera; el vendedor solo sus filas (columna
-    del vendedor) y nunca puede forzar la actualización.
+    Admin y super ven todo; el vendedor solo las filas cuya columna de
+    vendedor coincide con su código o nombre de A2.
     """
-    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
-    if usuario is None:
-        return RedirectResponse("/login", status_code=303)
-    pedir = request.query_params.get("empresa")
-    empresa_id = None
-    if pedir:
-        try:
-            empresa_id = int(pedir)
-        except ValueError:
-            empresa_id = None
-    if empresa_id and usuario["rol"] == "super":
-        fija_empresa_activa(usuario, empresa_id)
-    empresa = empresa_del(usuario, empresa_id)
-    if empresa is None:
-        return respuesta(request, "cartera.html", {"sin_empresa": True})
-    puede_actualizar = usuario["rol"] in ("super", "admin")
-    forzar = puede_actualizar and request.query_params.get("actualizar") == "1"
     estado = cartera_hoja.obtener(empresa, forzar)
     datos = estado["datos"]
     columnas, filas, filtros = [], [], []
@@ -1372,15 +1394,43 @@ def cartera(request: Request):
                 "filtros": [fila[i] if i < len(fila) else ""
                             for i in indices_filtro],
                 "saldo": saldo})
+    return {"columnas": columnas, "filas": filas, "filtros": filtros,
+            "total_saldo": total_saldo, "hay_saldo": hay_saldo,
+            "actualizado": estado["actualizado"], "error": estado["error"],
+            "columnas_todas": datos["columnas"] if datos else []}
+
+
+@app.get("/cartera")
+def cartera(request: Request):
+    """Cartera desde la hoja de Google configurada para la empresa.
+
+    Admin y super ven toda la cartera; el vendedor solo sus filas (columna
+    del vendedor) y nunca puede forzar la actualización.
+    """
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    pedir = request.query_params.get("empresa")
+    empresa_id = None
+    if pedir:
+        try:
+            empresa_id = int(pedir)
+        except ValueError:
+            empresa_id = None
+    if empresa_id and usuario["rol"] == "super":
+        fija_empresa_activa(usuario, empresa_id)
+    empresa = empresa_del(usuario, empresa_id)
+    if empresa is None:
+        return respuesta(request, "cartera.html", {"sin_empresa": True})
+    puede_actualizar = usuario["rol"] in ("super", "admin")
+    forzar = puede_actualizar and request.query_params.get("actualizar") == "1"
+    resultado = datos_cartera(usuario, empresa, forzar)
     return respuesta(request, "cartera.html", {
-        "empresa": empresa, "sin_empresa": False,
-        "columnas": columnas, "filas": filas, "filtros": filtros,
-        "total_saldo": total_saldo, "hay_saldo": hay_saldo,
+        "empresa": empresa, "sin_empresa": False, **resultado,
         "mostrar_total": bool(empresa["cartera_mostrar_total"]),
-        "actualizado": estado["actualizado"], "error": estado["error"],
         "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
-        "hay_vendedor_col": bool(datos) and cartera_hoja.indice_vendedor(
-            empresa, datos["columnas"]) >= 0,
+        "hay_vendedor_col": bool(resultado["columnas_todas"]) and
+        cartera_hoja.indice_vendedor(empresa, resultado["columnas_todas"]) >= 0,
         "puede_actualizar": puede_actualizar,
     })
 

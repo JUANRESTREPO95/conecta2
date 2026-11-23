@@ -7,6 +7,7 @@ vendedor coincide con su código o su nombre de A2; admin y super ven todo.
 import csv
 import io
 import json
+import os
 import re
 import threading
 import unicodedata
@@ -17,7 +18,11 @@ from datetime import datetime
 
 from app import db
 
-TIEMPO_CACHE = 300                       # segundos antes de volver a descargar
+# la hoja se refresca sola cada 10 minutos (CONECTA2_CARTERA_MINUTOS)
+INTERVALO_REFRESCO = max(1, int(os.environ.get("CONECTA2_CARTERA_MINUTOS", "10"))) * 60
+# un poco más que el intervalo: si la tarea interna cumplió, al entrar a
+# Cartera nunca se queda esperando una descarga
+TIEMPO_CACHE = INTERVALO_REFRESCO + 120
 MAX_BYTES = 12 * 1024 * 1024            # tope de la descarga
 MAX_FILAS = 20000
 AGENTE = "Mozilla/5.0 (compatible; Conecta2/1.0)"
@@ -195,6 +200,21 @@ def obtener(empresa, forzar: bool = False) -> dict:
 
 def borrar_cache(empresa_id: int) -> None:
     db.ejecutar("DELETE FROM cartera WHERE empresa_id = ?", (empresa_id,))
+
+
+def refrescar_todas() -> None:
+    """Vuelve a bajar la hoja de cada empresa que tenga enlace.
+
+    La usa la tarea interna cada 10 minutos: así la copia está lista antes
+    de que alguien abra Cartera (no hay que esperar la descarga al entrar).
+    """
+    filas = db.filas("SELECT * FROM empresas "
+                     "WHERE TRIM(COALESCE(cartera_url, '')) <> ''")
+    for empresa in filas:
+        try:
+            obtener(empresa, forzar=True)
+        except Exception:                               # noqa: BLE001
+            pass
 
 
 # ---------- columnas ----------

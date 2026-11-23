@@ -73,6 +73,7 @@ class MenuScreen extends StatelessWidget {
                             titulo: 'Pedidos',
                             subtitulo: 'Catálogo, carrito y pedidos',
                             icono: Icons.receipt_long,
+                            color: appState.colorPrimario,
                             onTap: appState.irAPedidos,
                           ),
                           const SizedBox(height: 14),
@@ -80,6 +81,7 @@ class MenuScreen extends StatelessWidget {
                             titulo: 'Cartera',
                             subtitulo: 'Saldos de tus clientes',
                             icono: Icons.account_balance_wallet,
+                            color: appState.colorCartera,
                             onTap: appState.irACartera,
                           ),
                         ],
@@ -123,6 +125,7 @@ class MenuScreen extends StatelessWidget {
     required String titulo,
     required String subtitulo,
     required IconData icono,
+    required Color color,
     required VoidCallback onTap,
   }) {
     return Material(
@@ -143,10 +146,10 @@ class MenuScreen extends StatelessWidget {
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  color: appState.colorPrimario.withAlpha(28),
+                  color: color.withAlpha(28),
                   borderRadius: BorderRadius.circular(15),
                 ),
-                child: Icon(icono, color: appState.colorPrimario, size: 29),
+                child: Icon(icono, color: color, size: 29),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -167,7 +170,7 @@ class MenuScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: appState.colorPrimario),
+              Icon(Icons.chevron_right, color: color),
             ],
           ),
         ),
