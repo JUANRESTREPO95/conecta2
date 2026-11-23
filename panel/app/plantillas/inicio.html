@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h1>Hola, {{ usuario.nombre }}</h1>
-<p class="sub">Rol: <strong>{{ usuario.rol }}</strong>. Conectado el {{ hora }}.</p>
+<p class="sub">Rol: <strong>{% if usuario.rol in ('super', 'admin') %}Administrador{% else %}Vendedor{% endif %}</strong>. Conectado el {{ hora }}.</p>
 
 {% if ver_pedidos or ver_cartera %}
 <div class="menu-secciones">
@@ -23,9 +23,6 @@
 {% else %}
 <div class="caja">
   <p style="margin:0"><strong>No hay información para mostrar.</strong></p>
-  <p class="sub" style="margin:.4rem 0 0">
-    El super usuario apagó las secciones. Pídele que active Pedidos o Cartera.
-  </p>
 </div>
 {% endif %}
 {% endblock %}

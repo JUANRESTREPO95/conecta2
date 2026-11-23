@@ -255,7 +255,8 @@ def primer_vez_post(request: Request, codigo: str = Form(...), nombre: str = For
     db.esquema()
     db.ejecutar("INSERT INTO usuarios (empresa_id, codigo, clave_hash, nombre, rol, "
                 "clave_visible) VALUES (NULL, ?, ?, ?, 'super', ?)",
-                (codigo.strip(), seguridad.hash_clave(clave), nombre.strip() or "Super",
+                (codigo.strip(), seguridad.hash_clave(clave),
+                 nombre.strip() or "Administrador",
                  seguridad.cifrar_clave(clave)))
     return RedirectResponse("/login?creado=1", status_code=303)
 
@@ -2063,7 +2064,7 @@ def configuracion_cartera_columnas(request: Request, url: str = Form("")):
     """Lee los títulos de la hoja de Cartera para poder elegir las columnas."""
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
-        return {"ok": False, "mensaje": "Solo el super usuario puede cambiar esto."}
+        return {"ok": False, "mensaje": "No se pudo cambiar esto."}
     destino = cartera_hoja.url_csv(url)
     if not destino:
         return {"ok": False, "mensaje": "El enlace debe empezar con https://"}
