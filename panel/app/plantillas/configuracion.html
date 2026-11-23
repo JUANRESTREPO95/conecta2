@@ -200,7 +200,7 @@
                value="{% if e.cartera_saldo_minimo %}{{ e.cartera_saldo_minimo|int }}{% endif %}">
       </label>
       <p class="sub" style="margin-top:-6px">Se ocultan las filas cuyo saldo sea
-        menor a esa cantidad.</p>
+        menor a esa cantidad. Escribe los miles con punto (ej. 1.000.000).</p>
       <label>Total del saldo arriba de la tabla
         <select name="cartera_mostrar_total">
           <option value="1" {% if e.cartera_mostrar_total in (None, 1, '1') %}selected{% endif %}>Mostrar</option>

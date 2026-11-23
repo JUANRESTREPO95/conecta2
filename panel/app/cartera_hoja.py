@@ -279,10 +279,11 @@ def nombre_vendedor(columnas: list[str]) -> str:
 # ---------- saldo ----------
 
 def a_numero(texto) -> float | None:
-    """Convierte una celda con dinero en número ("$1.234,56", "1234.56").
+    """Convierte una celda con dinero en número.
 
-    Google exporta los números con punto decimal y sin separadores de miles;
-    igual se aceptan formatos con punto y coma. None si no es un número.
+    En la cartera el punto es SIEMPRE el separador de miles (1.234.567);
+    si aparece una coma se toma como separador decimal (1.234.567,89).
+    None cuando la celda no es un número.
     """
     if texto is None:
         return None
@@ -291,20 +292,13 @@ def a_numero(texto) -> float | None:
         return None
     negativo = limpio.startswith("-")
     limpio = limpio.lstrip("-")
-    comas = limpio.count(",")
-    puntos = limpio.count(".")
-    if comas and puntos:
-        # el último separador que aparece es el decimal
-        if limpio.rfind(",") > limpio.rfind("."):
-            limpio = limpio.replace(".", "").replace(",", ".")
-        else:
-            limpio = limpio.replace(",", "")
-    elif comas > 1:
-        limpio = limpio.replace(",", "")           # 1,234,567 = miles
-    elif comas == 1:
-        limpio = limpio.replace(",", ".")          # 1,5 = decimal
-    elif puntos > 1:
-        limpio = limpio.replace(".", "")           # 1.234.567 = miles
+    if "," in limpio:
+        entero, _, decimales = limpio.partition(",")
+        limpio = entero.replace(".", "")
+        if decimales:
+            limpio = f"{limpio}.{decimales}"
+    else:
+        limpio = limpio.replace(".", "")
     try:
         numero = float(limpio)
     except ValueError:
