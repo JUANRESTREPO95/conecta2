@@ -123,13 +123,17 @@ class _AjustesTabState extends State<AjustesTab> {
   @override
   Widget build(BuildContext context) {
     final ultima = appState.ultimaSyncOk;
+    // si se abre desde Cartera, usa el color de Cartera; si no, el de Pedidos
+    final color = appState.seccion == 'cartera'
+        ? appState.colorCartera
+        : appState.colorPrimario;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: appState.colorPrimario,
+            color: color,
             borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
@@ -291,7 +295,7 @@ class _AjustesTabState extends State<AjustesTab> {
         ),
         const SizedBox(height: 18),
         const Center(
-          child: Text('Conecta2 1.0.16',
+          child: Text('Conecta2 1.0.19',
               style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
         ),
       ],

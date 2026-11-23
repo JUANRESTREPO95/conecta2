@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'screens/cartera_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/menu_screen.dart';
 import 'state.dart';
 
 void main() {
@@ -26,7 +28,15 @@ class Conecta2App extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: ThemeData(
             useMaterial3: true,
-            colorSchemeSeed: appState.colorPrimario,
+            // el primario exacto de la empresa, no un tono derivado:
+            // así el botón del login y los acentos usan el mismo color
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: appState.colorPrimario,
+            ).copyWith(
+              primary: appState.colorPrimario,
+              onPrimary: appState.colorLetra,
+              secondary: appState.colorPrimario,
+            ),
             scaffoldBackgroundColor: const Color(0xFFF6F7FB),
           ),
           // este AnimatedBuilder es el que hace que la raíz cambie a Home
@@ -46,10 +56,25 @@ class Conecta2App extends StatelessWidget {
 class _Raiz extends StatelessWidget {
   const _Raiz();
 
+  /// Pantalla según la sección, sin pasar por el menú cuando solo hay una
+  /// sección activa (el super apaga la otra desde el panel).
+  Widget _pantalla() {
+    final pedidos = appState.pedidosActivo;
+    final cartera = appState.carteraActiva;
+    if (appState.seccion == 'pedidos' && pedidos) return const HomeScreen();
+    if (appState.seccion == 'cartera' && cartera) return const CarteraScreen();
+    if (pedidos && !cartera) return const HomeScreen();
+    if (cartera && !pedidos) return const CarteraScreen();
+    return const MenuScreen();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!appState.iniciado) return const CargandoPantalla();
-    if (appState.modoConfig) return const HomeScreen();
+    if (appState.modoConfig) {
+      // acceso de configuración sin login: puede moverse por las secciones
+      return _pantalla();
+    }
     if (!appState.configurado) return const LoginScreen();
     if (appState.appRevocada) {
       return const BloqueoScreen(
@@ -68,7 +93,7 @@ class _Raiz extends StatelessWidget {
       );
     }
     if (!appState.logueado) return const LoginScreen();
-    return const HomeScreen();
+    return _pantalla();
   }
 }
 

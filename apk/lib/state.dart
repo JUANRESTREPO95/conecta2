@@ -37,6 +37,8 @@ class AppState extends ChangeNotifier {
   bool appRevocada = false;
   bool sesionVencida = false;
   bool modoConfig = false;
+  /// Sección visible después del login: 'menu', 'pedidos' o 'cartera'.
+  String seccion = 'menu';
   String? mensajeInicio;
   String paso = 'Iniciando…';
   int _generacion = 0;
@@ -78,6 +80,17 @@ class AppState extends ChangeNotifier {
     return Color(valor ?? 0xFF1E40AF);
   }
 
+  /// Color de la sección Cartera (el panel lo configura aparte de Pedidos).
+  Color get colorCartera {
+    final hex = (empresa?['color_cartera'] ?? '')
+        .toString()
+        .replaceFirst('#', '')
+        .trim();
+    if (hex.length != 6 && hex.length != 8) return colorPrimario;
+    final valor = int.tryParse(hex.length == 6 ? 'FF$hex' : hex, radix: 16);
+    return valor == null ? colorPrimario : Color(valor);
+  }
+
   Color get colorLetra {
     final hex = (empresa?['color_letra'] ?? '#ffffff').toString().replaceFirst(
       '#',
@@ -91,6 +104,50 @@ class AppState extends ChangeNotifier {
     final ultima = ultimaSyncOk;
     if (ultima == null) return false;
     return DateTime.now().difference(ultima).inHours < 72;
+  }
+
+  /// El super usuario activa o apaga cada sección desde el panel.
+  /// Si la app todavía no trae el dato, se toman como activas.
+  bool get pedidosActivo {
+    final valor = empresa?['pedidos_activo'];
+    return valor == null ? true : valor == 1;
+  }
+
+  bool get carteraActiva {
+    final valor = empresa?['cartera_activa'];
+    return valor == null ? true : valor == 1;
+  }
+
+  /// Con una sola sección activa no tiene sentido mostrar el menú.
+  bool get unaSolaSeccion => pedidosActivo != carteraActiva;
+
+  /// Si solo hay una sección activa, entra directo a ella sin pasar por el menú.
+  void ajustarSeccion() {
+    if (seccion != 'menu') return;
+    if (pedidosActivo && !carteraActiva) {
+      seccion = 'pedidos';
+    } else if (carteraActiva && !pedidosActivo) {
+      seccion = 'cartera';
+    }
+  }
+
+  // ---------- navegación principal ----------
+
+  void irAlMenu() {
+    seccion = 'menu';
+    notifyListeners();
+  }
+
+  void irAPedidos() {
+    if (!pedidosActivo) return;
+    seccion = 'pedidos';
+    notifyListeners();
+  }
+
+  void irACartera() {
+    if (!carteraActiva) return;
+    seccion = 'cartera';
+    notifyListeners();
   }
 
   Future<void> init() async {
@@ -173,6 +230,7 @@ class AppState extends ChangeNotifier {
     } finally {
       paso = 'Listo';
       iniciado = true;
+      ajustarSeccion();
       notifyListeners();
     }
   }
@@ -407,6 +465,7 @@ class AppState extends ChangeNotifier {
       if (emp is Map) {
         empresa = emp.cast<String, dynamic>();
         await db.setConfig('empresa', jsonEncode(empresa));
+        ajustarSeccion();
       }
       ultimoSyncServidor = datos['servidor']?.toString();
       await db.setConfig('ultimo_sync', ultimoSyncServidor);
@@ -464,6 +523,8 @@ class AppState extends ChangeNotifier {
     sesionVencida = false;
     online = true;
     modoConfig = false;
+    seccion = 'menu';
+    ajustarSeccion();
     notifyListeners();
     await procesarCola();
   }
@@ -526,12 +587,14 @@ class AppState extends ChangeNotifier {
     sesion ??= await _seguro('sesion');
     api?.sesion = sesion;
     online = false;
+    seccion = 'menu';
     notifyListeners();
   }
 
   Future<void> cerrarSesion() async {
     _generacion++;
     modoConfig = false;
+    seccion = 'menu';
     usuarioCodigo = null;
     usuarioNombre = null;
     usuarioRol = null;
