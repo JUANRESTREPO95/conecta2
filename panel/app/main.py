@@ -488,7 +488,17 @@ def app_datos(request: Request):
         return _json_error("empresa inactiva", 403)
     desde = (request.query_params.get("desde") or "").strip()
 
-    cond_p = "p.empresa_id = ? AND p.internet = 1 AND p.activo = 1"
+    # la app recibe los mismos productos que muestra el catálogo del panel
+    modo_cat = (empresa["catalogo_modo"] or "internet")
+    if modo_cat == "todos":
+        cond_p = "p.empresa_id = ?"
+        oculto = "0"
+    elif modo_cat == "activos":
+        cond_p = "p.empresa_id = ? AND p.activo = 1"
+        oculto = "activo = 0"
+    else:
+        cond_p = "p.empresa_id = ? AND p.internet = 1 AND p.activo = 1"
+        oculto = "(internet = 0 OR activo = 0)"
     vals_p: list = [empresa["id"]]
     if desde:
         cond_p += " AND p.actualizado >= ?"
@@ -502,18 +512,23 @@ def app_datos(request: Request):
     if desde:
         eliminados = [r["codigo"] for r in db.filas(
             "SELECT codigo FROM productos WHERE empresa_id = ? "
-            "AND actualizado >= ? AND (internet = 0 OR activo = 0)",
+            "AND actualizado >= ? AND " + oculto,
             (empresa["id"], desde))]
 
     # existencia visible según el modo de depósito de la empresa
     modo = empresa["deposito_modo"] or "1"
+    cond_stock = "p.empresa_id = ?"
+    if modo_cat == "activos":
+        cond_stock += " AND p.activo = 1"
+    elif modo_cat == "internet":
+        cond_stock += " AND p.internet = 1 AND p.activo = 1"
     filas_stock = db.filas(
         "SELECT p.codigo, "
         "MAX(CASE WHEN s.deposito = 1 THEN s.existencia END) AS dep1, "
         "MAX(CASE WHEN s.deposito = 2 THEN s.existencia END) AS dep2 "
         "FROM productos p LEFT JOIN stock s ON s.empresa_id = p.empresa_id "
         "AND s.codigo_producto = p.codigo "
-        "WHERE p.empresa_id = ? AND p.internet = 1 AND p.activo = 1 "
+        "WHERE " + cond_stock + " "
         "GROUP BY p.codigo", (empresa["id"],))
     existencias: dict = {}
     for r in filas_stock:
@@ -1944,12 +1959,17 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        cartera_mostrar_total: str = Form("1"),
                        pedidos_activo: str = Form("1"),
                        cartera_activa: str = Form("1"),
-                       cartera_usar_saldo: str = Form("1")):
+                       cartera_usar_saldo: str = Form("1"),
+                       catalogo_modo: str = Form("internet")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    actual = db.fila("SELECT logo, cartera_url FROM empresas WHERE id = ?",
-                     (empresa_id,))
+    actual = db.fila("SELECT logo, cartera_url, catalogo_modo FROM empresas "
+                     "WHERE id = ?", (empresa_id,))
+    modo_anterior = ((actual["catalogo_modo"] if actual else "internet")
+                     or "internet")
+    if catalogo_modo not in ("internet", "activos", "todos"):
+        catalogo_modo = "internet"
     logo = (actual or {"logo": None})["logo"]
     if quitar_logo:
         logo = None
@@ -2032,7 +2052,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "cartera_filtros = ?, cartera_columna_saldo = ?, "
                 "cartera_saldo_minimo = ?, cartera_mostrar_total = ?, "
                 "pedidos_activo = ?, cartera_activa = ?, "
-                "cartera_usar_saldo = ? "
+                "cartera_usar_saldo = ?, catalogo_modo = ? "
                 "WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_cartera, color_primario, color_letra, logo,
@@ -2046,8 +2066,14 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                  json.dumps(filtros_cartera, ensure_ascii=False),
                  (cartera_columna_saldo or "").strip() or None,
                  minimo_saldo, mostrar_total,
-                 pedidos_on, cartera_on, usar_saldo,
+                 pedidos_on, cartera_on, usar_saldo, catalogo_modo,
                  empresa_id))
+    if catalogo_modo != modo_anterior:
+        # que la app reciba el cambio en su próxima sincronización y borre
+        # los productos que dejen de mostrarse
+        db.ejecutar("UPDATE productos SET actualizado = "
+                    "datetime('now','localtime') WHERE empresa_id = ?",
+                    (empresa_id,))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
     if error_logo or error_cartera:
         # el resto de la configuración sí se guardó; se avisa de lo que falló
@@ -2104,7 +2130,14 @@ def condicion_catalogo(empresa, q: str):
     que lo tiene al comienzo de un tramo (58320 → GG-58320) y al final los que
     solo coinciden por la descripción.
     """
-    condicion = "p.empresa_id = ? AND p.internet = 1 AND p.activo = 1"
+    # qué productos de A2 entran al catálogo (se elige en Configuración)
+    modo_cat = (empresa["catalogo_modo"] or "internet")
+    if modo_cat == "todos":
+        condicion = "p.empresa_id = ?"
+    elif modo_cat == "activos":
+        condicion = "p.empresa_id = ? AND p.activo = 1"
+    else:
+        condicion = "p.empresa_id = ? AND p.internet = 1 AND p.activo = 1"
     valores: list = [empresa["id"]]
     orden, orden_valores = "p.descripcion", []
     qn = _normaliza_busqueda(q)
