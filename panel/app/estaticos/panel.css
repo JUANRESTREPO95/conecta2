@@ -238,3 +238,137 @@ textarea { width: 100%; height: 96px; min-height: 96px; max-height: 96px;
 #caja-cliente-nuevo label { margin-top: 6px; }
 #caja-cliente-nuevo p.sub { margin: 4px 0; }
 #caja-cliente-nuevo button { margin-top: 10px; }
+
+/* ---- menú de dos secciones (Pedidos / Cartera) ---- */
+.menu-secciones { display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem; margin-top: 1.1rem; }
+.menu-tarjeta { display: flex; flex-direction: column; gap: .35rem;
+  padding: 1.2rem 1.3rem; background: #fff; border: 2px solid var(--borde);
+  border-radius: 16px; text-decoration: none; color: var(--texto);
+  transition: border-color .2s, transform .15s, box-shadow .2s; }
+.menu-tarjeta:hover { border-color: var(--primario); transform: translateY(-2px);
+  box-shadow: var(--sombra); }
+.menu-icono { font-size: 2rem; line-height: 1; }
+.menu-titulo { font-family: "Rubik", sans-serif; font-weight: 700;
+  font-size: 1.25rem; color: var(--primario); }
+.menu-sub { color: var(--texto-suave); font-size: .92rem; }
+
+/* ---- configuración en dos columnas (Pedidos | Cartera) ---- */
+.caja-ancha { max-width: 1080px; }
+.config-columnas { display: grid; grid-template-columns: 1fr 1fr;
+  gap: 1.5rem; align-items: stretch; }
+.config-columnas .caja { max-width: none; }
+.config-columna { min-width: 0; }
+.config-columna h2 { font-family: "Rubik", sans-serif; font-size: 1.1rem;
+  margin: 0 0 .5rem; color: var(--primario); }
+
+.seccion-empresas { margin-bottom: 2.2rem; }
+.config-general { margin-bottom: 1.4rem; }
+.config-general h2 { font-family: "Rubik", sans-serif; font-size: 1.1rem;
+  margin: 0 0 .5rem; color: var(--primario); }
+.boton-enlace { display: inline-block; padding: .5rem 1.1rem; border-radius: 10px;
+  background: var(--primario); color: #fff; text-decoration: none;
+  font-family: "Rubik", sans-serif; font-weight: 600; font-size: .92rem; }
+.boton-enlace:hover { background: var(--oscuro); }
+
+/* solo se apilan en celulares; en laptop/escritorio siempre van lado a lado */
+@media (max-width: 560px) {
+  .config-columnas { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .menu-secciones { grid-template-columns: 1fr; }
+}
+
+/* ---- catálogo: el recuadro es la cantidad del pedido ----
+   sin flechas de número; + y − del mismo tamaño y color */
+input.mini::-webkit-outer-spin-button,
+input.mini::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input.mini { -moz-appearance: textfield; appearance: textfield; }
+input.mini::placeholder { color: #94a3b8; font-weight: 600; }
+table.tabla-catalogo form.inline button { min-width: 38px; height: 34px;
+  padding: 0 8px; font-size: 1rem; line-height: 1; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center; }
+
+/* ---- cartera: filtro, filtros rápidos y tabla sin scroll horizontal ---- */
+.cartera-filtro { display: block; width: 100%; margin: .3rem 0 .8rem;
+  padding: .65rem .9rem; border: 2px solid #d7cfc9; border-radius: 10px;
+  font: inherit; background: #fff; }
+.cartera-filtro:focus { outline: none; border-color: var(--primario);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primario) 25%, #fff); }
+
+.cartera-filtros { display: flex; flex-wrap: wrap; gap: .55rem 1rem;
+  margin: 0 0 .9rem; }
+.cartera-filtros label { display: flex; flex-direction: column; gap: 2px;
+  margin: 0; font-size: .7rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--texto-suave); }
+.cartera-filtros select { min-width: 150px; max-width: 240px;
+  padding: .45rem .6rem; border: 2px solid #d7cfc9; border-radius: 9px;
+  font: inherit; font-size: .92rem; font-weight: 500; text-transform: none;
+  letter-spacing: 0; color: var(--texto); background: #fff; }
+.cartera-filtros select:focus { outline: none; border-color: var(--primario); }
+
+/* total del saldo arriba de la tabla */
+.cartera-total { display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin: .2rem 0 1rem; padding: .85rem 1.2rem;
+  background: color-mix(in srgb, var(--primario) 7%, #fff);
+  border: 2px solid var(--primario); border-radius: 14px; }
+.cartera-total-etiqueta { font-family: "Rubik", sans-serif; font-size: .8rem;
+  font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--texto-suave); }
+.cartera-total-valor { font-family: "Rubik", sans-serif;
+  font-size: clamp(1.5rem, 2.4vw, 2.1rem); font-weight: 800;
+  color: var(--primario); font-variant-numeric: tabular-nums; line-height: 1.1; }
+
+/* la tabla ocupa el ancho disponible: los títulos van en un solo renglón y
+   las columnas se ajustan a su contenido (sin partir palabras) */
+main.pantalla-ancha { max-width: 1900px; }
+.cartera-marco { background: #fff; border: 2px solid var(--borde);
+  border-radius: 14px; overflow-x: auto; overflow-y: hidden; }
+.cartera-tabla { border: 0; border-radius: 0; table-layout: auto; width: 100%; }
+.cartera-tabla th { font-size: .68rem; white-space: nowrap; padding: .55rem .5rem; }
+.cartera-tabla td { white-space: normal; overflow-wrap: normal; word-break: normal;
+  padding: .5rem .55rem; }
+.cartera-tabla th, .cartera-tabla td { vertical-align: top; }
+
+/* en el celular cada registro es una tarjeta con el título de cada dato */
+@media (max-width: 640px) {
+  .cartera-marco { border: 0; border-radius: 0; background: transparent; }
+  .cartera-tabla { display: block; overflow: visible; white-space: normal;
+    border: 0; background: transparent; table-layout: auto; }
+  .cartera-tabla thead { display: none; }
+  .cartera-tabla tbody { display: block; }
+  .cartera-tabla tr { display: block; background: #fff;
+    border: 2px solid var(--borde); border-radius: 12px; margin: 0 0 .7rem;
+    padding: .45rem .8rem; }
+  .cartera-tabla tbody td { display: flex; gap: .6rem; min-width: 0;
+    position: static; border: 0; padding: .3rem 0;
+    background: transparent !important; }
+  .cartera-tabla td::before { content: attr(data-col); flex: 0 0 38%;
+    font-weight: 700; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .03em; color: var(--texto-suave); }
+  .cartera-tabla td.dato-filtro { display: none; }
+  .cartera-tabla tbody tr:hover td,
+  .cartera-tabla tbody tr:nth-child(even) td { background: transparent !important; }
+}
+
+/* ---- configuración: columnas de la hoja de cartera ---- */
+.cartera-columnas { display: grid; grid-template-columns: 1fr 1fr;
+  gap: 2px 14px; margin: 0 0 10px; }
+.cartera-columnas label { display: flex; align-items: center; gap: 6px;
+  margin: 0; font-weight: 500; font-size: .9rem; }
+.cartera-columnas input[type="checkbox"] { width: 18px; height: 18px;
+  padding: 0; margin: 0; display: inline-block; flex: 0 0 auto; }
+/* orden de las columnas: flechas al lado de cada una */
+.cartera-col-fila { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.cartera-col-fila label { flex: 1 1 auto; min-width: 0; }
+.cartera-col-mover { display: inline-flex; gap: 3px; flex: 0 0 auto; }
+.cartera-col-mover button { width: 26px; height: 26px; min-width: 0;
+  padding: 0; margin: 0; font-size: .8rem; line-height: 1; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #fff; color: var(--texto); border: 2px solid #d7cfc9; }
+.cartera-col-mover button:hover { background: color-mix(in srgb, var(--primario) 10%, #fff);
+  border-color: var(--primario); color: var(--texto); }
+@media (max-width: 640px) {
+  .cartera-columnas { grid-template-columns: 1fr; }
+}

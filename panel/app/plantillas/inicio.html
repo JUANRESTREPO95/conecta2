@@ -2,18 +2,30 @@
 {% block contenido %}
 <h1>Hola, {{ usuario.nombre }}</h1>
 <p class="sub">Rol: <strong>{{ usuario.rol }}</strong>. Conectado el {{ hora }}.</p>
-<ul>
-  <li><a href="/catalogo">Catálogo</a></li>
-  <li><a href="/pedido">Pedido</a></li>
-  {% if usuario.rol == 'vendedor' %}
-    <li><a href="/pedidos">Mis pedidos</a></li>
-  {% else %}
-    <li><a href="/pedidos">Historial de pedidos{% if usuario.rol == 'admin' %} (todos los vendedores){% endif %}</a></li>
+
+{% if ver_pedidos or ver_cartera %}
+<div class="menu-secciones">
+  {% if ver_pedidos %}
+  <a class="menu-tarjeta" href="/catalogo">
+    <span class="menu-icono">🧾</span>
+    <span class="menu-titulo">Pedidos</span>
+    <span class="menu-sub">Catálogo, carrito y pedidos</span>
+  </a>
   {% endif %}
-  {% if usuario.rol == 'super' %}
-    <li><a href="/vendedores">Vendedores y administrativos</a></li>
-    <li><a href="/configuracion">Configuración</a></li>
-    <li><a href="/empresas">Empresas</a></li>
+  {% if ver_cartera %}
+  <a class="menu-tarjeta" href="/cartera">
+    <span class="menu-icono">💼</span>
+    <span class="menu-titulo">Cartera</span>
+    <span class="menu-sub">Saldos de tus clientes</span>
+  </a>
   {% endif %}
-</ul>
+</div>
+{% else %}
+<div class="caja">
+  <p style="margin:0"><strong>No hay información para mostrar.</strong></p>
+  <p class="sub" style="margin:.4rem 0 0">
+    El super usuario apagó las secciones. Pídele que active Pedidos o Cartera.
+  </p>
+</div>
+{% endif %}
 {% endblock %}
