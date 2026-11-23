@@ -90,22 +90,28 @@ class MenuScreen extends StatelessWidget {
                               onTap: appState.irACartera,
                             ),
                           if (!appState.pedidosActivo &&
-                              !appState.carteraActiva) ...[
+                              !appState.carteraActiva)
                             const Text(
                               'No hay información para mostrar.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                   fontSize: 16, fontWeight: FontWeight.w800),
                             ),
-                            const SizedBox(height: 6),
-                            const Text(
-                              'Pídele al administrador que active Pedidos o '
-                              'Cartera desde el panel.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 12, color: Color(0xFF6B7280)),
-                            ),
-                          ],
+                          const SizedBox(height: 24),
+                          OutlinedButton.icon(
+                            onPressed: appState.sincronizando
+                                ? null
+                                : () => _recargar(context),
+                            icon: appState.sincronizando
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child:
+                                        CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.refresh),
+                            label: const Text('Volver a cargar'),
+                          ),
                         ],
                       ),
                     ),
@@ -141,6 +147,25 @@ class MenuScreen extends StatelessWidget {
       ),
       child: Icon(Icons.storefront, color: appState.colorLetra, size: 48),
     );
+  }
+
+  /// Vuelve a pedir la configuración y los datos al panel: sirve cuando el
+  /// super acaba de activar una sección y la app todavía no lo sabe.
+  Future<void> _recargar(BuildContext context) async {
+    try {
+      await appState.sincronizar();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Datos actualizados')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo actualizar: $e')),
+        );
+      }
+    }
   }
 
   Widget _tarjeta({
