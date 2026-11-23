@@ -131,6 +131,14 @@ class _CarteraScreenState extends State<CarteraScreen>
     // Cartera tiene su propio color de panel; la letra es la misma
     final primario = appState.colorCartera;
     final letra = appState.colorLetra;
+    // todo lo que se dibuja dentro de Cartera (botones, campos, acentos)
+    // usa el color de cartera, no el de Pedidos
+    final tema = Theme.of(context).copyWith(
+      colorScheme: Theme.of(context).colorScheme.copyWith(
+        primary: primario,
+        onPrimary: letra,
+      ),
+    );
     return AnimatedBuilder(
       animation: appState,
       builder: (context, _) {
@@ -204,12 +212,15 @@ class _CarteraScreenState extends State<CarteraScreen>
                 ],
               ),
             ),
-            body: TabBarView(
-              controller: _tab,
-              children: [
-                _cartera(),
-                const AjustesTab(),
-              ],
+            body: Theme(
+              data: tema,
+              child: TabBarView(
+                controller: _tab,
+                children: [
+                  _cartera(),
+                  const AjustesTab(),
+                ],
+              ),
             ),
           ),
         );
@@ -241,25 +252,63 @@ class _CarteraScreenState extends State<CarteraScreen>
         .whereType<Map>()
         .map((f) => f.cast<String, dynamic>())
         .toList();
-    final q = _normal(_buscar.text);
 
-    final visibles = <Map<String, dynamic>>[];
+    // prepara cada registro una sola vez
+    final registros = <Map<String, dynamic>>[];
     for (final cruda in todas) {
       if (cruda is! Map) continue;
       final fila = cruda.cast<String, dynamic>();
-      final celdas = _lista(fila['celdas']);
-      final valores = _lista(fila['filtros']);
-      if (q.isNotEmpty && !_normal(celdas.join(' ')).contains(q)) continue;
-      var pasa = true;
+      registros.add({
+        'celdas': _lista(fila['celdas']),
+        'valores': _lista(fila['filtros']),
+        'saldo': fila['saldo'],
+      });
+    }
+    final q = _normal(_buscar.text);
+
+    // filtros en cascada: cada desplegable solo ofrece los valores que
+    // existen con los otros filtros y la búsqueda aplicados
+    bool pasa(Map<String, dynamic> reg, int sinIndice) {
+      final celdas = reg['celdas'] as List<String>;
+      if (q.isNotEmpty && !_normal(celdas.join(' ')).contains(q)) return false;
+      final valores = reg['valores'] as List<String>;
       for (var i = 0; i < filtros.length; i++) {
+        if (i == sinIndice) continue;
         final elegido = _filtros[i] ?? '';
         if (elegido.isEmpty) continue;
-        if (i >= valores.length || valores[i] != elegido) {
-          pasa = false;
-          break;
+        if (i >= valores.length || valores[i] != elegido) return false;
+      }
+      return true;
+    }
+
+    var opciones = <int, List<String>>{};
+    for (var vuelta = 0; vuelta < 2; vuelta++) {
+      opciones = {};
+      for (var i = 0; i < filtros.length; i++) {
+        final hay = <String>{};
+        for (final reg in registros) {
+          if (!pasa(reg, i)) continue;
+          final valores = reg['valores'] as List<String>;
+          if (i < valores.length && valores[i].isNotEmpty) {
+            hay.add(valores[i]);
+          }
+        }
+        // conserva el orden que trae la hoja
+        final base = _lista(filtros[i]['opciones']);
+        opciones[i] = base.where(hay.contains).toList();
+      }
+      // lo elegido que ya no existe con los demás filtros se suelta
+      for (var i = 0; i < filtros.length; i++) {
+        final actual = _filtros[i] ?? '';
+        if (actual.isNotEmpty && !(opciones[i] ?? const []).contains(actual)) {
+          _filtros[i] = '';
         }
       }
-      if (pasa) visibles.add(fila);
+    }
+
+    final visibles = <Map<String, dynamic>>[];
+    for (final reg in registros) {
+      if (pasa(reg, -1)) visibles.add(reg);
     }
 
     var total = 0.0;
@@ -286,7 +335,7 @@ class _CarteraScreenState extends State<CarteraScreen>
           ),
         ),
       ),
-      if (filtros.isNotEmpty) _filtrosWidget(filtros),
+      if (filtros.isNotEmpty) _filtrosWidget(filtros, opciones),
       if (_desdeCache) _avisoCache(actualizado),
       if (actualizado.isNotEmpty)
         Padding(
@@ -413,21 +462,23 @@ class _CarteraScreenState extends State<CarteraScreen>
     );
   }
 
-  Widget _filtrosWidget(List<Map<String, dynamic>> filtros) {
+  Widget _filtrosWidget(
+      List<Map<String, dynamic>> filtros, Map<int, List<String>> opciones) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (var i = 0; i < filtros.length; i++) _unFiltro(filtros[i], i),
+          for (var i = 0; i < filtros.length; i++)
+            _unFiltro(filtros[i], i, opciones[i] ?? const []),
         ],
       ),
     );
   }
 
-  Widget _unFiltro(Map<String, dynamic> filtro, int indice) {
-    final opciones = _lista(filtro['opciones']);
+  Widget _unFiltro(
+      Map<String, dynamic> filtro, int indice, List<String> opciones) {
     final actual = _filtros[indice] ?? '';
     return SizedBox(
       width: 160,
@@ -476,7 +527,15 @@ class _CarteraScreenState extends State<CarteraScreen>
   Widget _ficha(List<String> columnas, Map<String, dynamic> fila) {
     final celdas = _lista(fila['celdas']);
     return Card(
+      // blanco fijo: sin el tinte del tema (que salía rosado)
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
       margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         child: Column(

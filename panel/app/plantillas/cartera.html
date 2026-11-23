@@ -140,12 +140,62 @@
     }
     if (bloqueTotal) bloqueTotal.textContent = miles(suma);
   }
+  // ---- filtros en cascada: cada desplegable solo muestra los valores que
+  // existen con los otros filtros y la búsqueda aplicados ----
+  var opcionesBase = selects.map(function (s) {
+    return Array.prototype.slice.call(s.options)
+      .map(function (o) { return o.value; })
+      .filter(function (v) { return v !== ''; });
+  });
+  function disponibles(indice) {
+    var q = normal(entrada.value.trim());
+    var elegidos = selects.map(function (s) { return s.value; });
+    var hay = {};
+    for (var i = 0; i < filas.length; i++) {
+      if (q && textos[i].indexOf(q) === -1) continue;
+      var pasa = true;
+      for (var k = 0; k < elegidos.length; k++) {
+        if (k === indice || !elegidos[k]) continue;
+        if (valores[i][k] !== elegidos[k]) { pasa = false; break; }
+      }
+      if (pasa) hay[valores[i][indice]] = true;
+    }
+    return hay;
+  }
+  function reconstruir(indice, hay) {
+    var s = selects[indice];
+    var actual = s.value;
+    s.innerHTML = '';
+    var todos = document.createElement('option');
+    todos.value = '';
+    todos.textContent = 'Todos';
+    s.appendChild(todos);
+    var lista = opcionesBase[indice] || [];
+    for (var t = 0; t < lista.length; t++) {
+      if (!hay[lista[t]]) continue;
+      var o = document.createElement('option');
+      o.value = lista[t];
+      o.textContent = lista[t];
+      s.appendChild(o);
+    }
+    s.value = (actual && hay[actual]) ? actual : '';
+  }
+  function aplicar() {
+    var i;
+    // lo elegido que ya no existe con los demás filtros se suelta
+    for (i = 0; i < selects.length; i++) {
+      var hay = disponibles(i);
+      if (selects[i].value && !hay[selects[i].value]) selects[i].value = '';
+    }
+    for (i = 0; i < selects.length; i++) reconstruir(i, disponibles(i));
+    filtrar();
+  }
   var temporizador = null;
   entrada.addEventListener('input', function () {
     clearTimeout(temporizador);
-    temporizador = setTimeout(filtrar, 120);
+    temporizador = setTimeout(aplicar, 120);
   });
-  selects.forEach(function (s) { s.addEventListener('change', filtrar); });
+  selects.forEach(function (s) { s.addEventListener('change', aplicar); });
 })();
 </script>
 {% endif %}
