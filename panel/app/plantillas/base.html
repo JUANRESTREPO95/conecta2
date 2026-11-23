@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ nombre_negocio }} — Conecta2</title>
-  <link rel="stylesheet" href="/estaticos/panel.css">
+  <link rel="stylesheet" href="/estaticos/panel.css?v=14">
   {# el ?v=logo evita que el navegador use el favicon viejo al cambiar el logo #}
   <link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{ (logo or 'base') | urlencode }}">
   {% if logo %}
@@ -27,26 +27,30 @@
     {% if usuario %}
     <nav>
       <a href="/inicio">Inicio</a>
-      <a href="/catalogo">Catálogo</a>
-      <a href="/pedido">Pedido{% if carrito_n %} ({{ carrito_n }}){% endif %}</a>
-      <a href="/pedidos">Historial</a>
+      {% if seccion == 'cartera' %}
+        <a href="/cartera">Cartera</a>
+      {% else %}
+        <a href="/catalogo">Catálogo</a>
+        <a href="/pedido">Pedido{% if carrito_n %} ({{ carrito_n }}){% endif %}</a>
+        <a href="/pedidos">Historial</a>
+      {% endif %}
+      {# Vendedores, Apps y Configuración son los mismos en ambas secciones #}
       {% if usuario.rol in ('admin', 'super') %}
         <a href="/vendedores">Vendedores</a>
         <a href="/apps">Apps</a>
       {% endif %}
       {% if usuario.rol == 'super' %}
         <a href="/configuracion">Configuración</a>
-        <a href="/empresas">Empresas</a>
       {% endif %}
       <a href="/logout" class="salir">Salir ({{ usuario.nombre }})</a>
     </nav>
     {% endif %}
   </header>
   {% endif %}
-  <main>
+  <main class="{% block clase_main %}{% endblock %}">
     {% block contenido %}{% endblock %}
   </main>
-  {% if usuario %}
+  {% if usuario and seccion != 'cartera' %}
   <a href="/pedido" id="carrito-flotante" class="carrito"
      {% if not carrito_n %}style="display:none"{% endif %}>
     Pedido: <span id="carrito-monto">{{ carrito_monto | num }}</span>

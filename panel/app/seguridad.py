@@ -66,7 +66,7 @@ def usuario_de_sesion(token: str):
     # se recupera aunque la sesión anterior haya expirado. El de la sesión se
     # deja como respaldo para carritos viejos que aún no se migraron.
     fila = db.fila(
-        "SELECT u.*, s.token AS token, "
+        "SELECT u.*, s.token AS token, s.seccion AS seccion_actual, "
         "COALESCE(s.empresa_activa, u.empresa_id) AS empresa_actual, "
         "COALESCE((SELECT c.carrito FROM carritos c WHERE c.usuario_id = u.id "
         "          AND c.empresa_id = COALESCE(s.empresa_activa, u.empresa_id)), "

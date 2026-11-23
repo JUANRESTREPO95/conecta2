@@ -3,6 +3,9 @@
 Multi-empresa. Roles: super (global), admin (por empresa), vendedor.
 El super usuario se crea en el primer arranque, en /primer-vez.
 """
+import json
+import threading
+import time
 from datetime import datetime
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -12,11 +15,26 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import a2, config, db, hoja, seguridad
+from app import a2, cartera_hoja, config, db, hoja, seguridad
 
 db.esquema()  # garantiza el esquema también cuando uvicorn recarga en modo dev
 
 app = FastAPI(title="Conecta2", docs_url=None, redoc_url=None)
+
+
+def _refresco_cartera():
+    """Baja la hoja de Cartera cada 10 minutos, aunque nadie entre al panel."""
+    time.sleep(30)  # deja que el servidor termine de arrancar
+    while True:
+        try:
+            cartera_hoja.refrescar_todas()
+        except Exception:                               # noqa: BLE001
+            pass
+        time.sleep(cartera_hoja.INTERVALO_REFRESCO)
+
+
+threading.Thread(target=_refresco_cartera, name="cartera-refresco",
+                 daemon=True).start()
 # el catálogo de la app son varios MB: se comprime la respuesta
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -35,6 +53,45 @@ app.mount("/logos", StaticFiles(directory=str(config.LOGOS)), name="logos")
 plantillas = Jinja2Templates(directory=str(config.PLANTILLAS))
 
 
+@app.middleware("http")
+async def bloqueo_de_secciones(request: Request, call_next):
+    """Admin y vendedores solo entran a las secciones que el super activó.
+
+    El super siempre pasa. Si la sección está apagada se redirige al inicio
+    (o se responde 403 a las búsquedas que se hacen sin recargar).
+    """
+    ruta = request.url.path
+    seccion = None
+    if ruta == "/cartera" or ruta.startswith("/cartera/"):
+        seccion = "cartera"
+    elif (ruta == "/catalogo" or ruta.startswith("/catalogo/") or
+          ruta == "/pedido" or ruta.startswith("/pedido/")):
+        seccion = "pedidos"
+    if seccion is None:
+        return await call_next(request)
+    usuario = usuario_actual(request)
+    if usuario is None or usuario["rol"] == "super":
+        return await call_next(request)
+    empresa = empresa_del(usuario, None)
+    if empresa is not None:
+        activa = bandera(empresa["cartera_activa"] if seccion == "cartera"
+                         else empresa["pedidos_activo"])
+        if not activa:
+            if request.headers.get("x-requested-with") == "fetch":
+                return Response(json.dumps(
+                    {"ok": False, "mensaje": "Sección desactivada."}),
+                    status_code=403, media_type="application/json")
+            return RedirectResponse("/inicio", status_code=303)
+    return await call_next(request)
+
+
+def bandera(valor) -> bool:
+    """Interruptor 0/1 de la empresa; si está vacío se toma como activo."""
+    if valor is None:
+        return True
+    return str(valor).strip().lower() not in ("0", "", "false")
+
+
 def num(v) -> str:
     """Número sin decimales y con separador de miles (1.234.567)."""
     if v is None or v == "":
@@ -51,9 +108,40 @@ def usuario_actual(request: Request):
     return seguridad.usuario_de_sesion(request.cookies.get(COOKIE_SESION))
 
 
-def colores_para(usuario) -> dict:
+def seccion_de_ruta(request: Request):
+    """Devuelve la sección si la página pertenece a una; si no, None."""
+    ruta = request.url.path
+    if ruta == "/cartera" or ruta.startswith("/cartera/"):
+        return "cartera"
+    if (ruta in ("/catalogo", "/pedido", "/pedidos")
+            or ruta.startswith("/pedidos/")):
+        return "pedidos"
+    return None
+
+
+def fija_seccion(usuario, seccion: str) -> None:
+    """Recuerda en la sesión desde qué sección se está trabajando."""
+    if usuario is None or "seccion_actual" not in usuario.keys():
+        return
+    if (usuario["seccion_actual"] or "pedidos") != seccion:
+        db.ejecutar("UPDATE sesiones SET seccion = ? WHERE token = ?",
+                    (seccion, usuario["token"]))
+
+
+def seccion_actual(request: Request, usuario=None) -> str:
+    """La de la ruta o, en páginas comunes, la que quedó en la sesión."""
+    fija = seccion_de_ruta(request)
+    if fija:
+        return fija
+    if usuario is not None and "seccion_actual" in usuario.keys():
+        return usuario["seccion_actual"] or "pedidos"
+    return "pedidos"
+
+
+def colores_para(usuario, seccion: str = "pedidos") -> dict:
     defecto = {"color_primario": "#1e40af", "color_secundario": "#0f172a",
-               "color_letra": "#ffffff", "nombre_negocio": "Conecta2", "logo": None}
+               "color_letra": "#ffffff", "nombre_negocio": "Conecta2", "logo": None,
+               "seccion": seccion}
     empresa = None
     if usuario is not None:
         # el super sigue la empresa que está viendo; los demás, la suya
@@ -67,10 +155,17 @@ def colores_para(usuario) -> dict:
         empresa = db.fila("SELECT * FROM empresas WHERE activa = 1 ORDER BY id LIMIT 1")
     if empresa is None:
         return defecto
-    return {"color_primario": empresa["color_primario"],
+    # Cartera tiene su propio color para distinguirla de Pedidos
+    if seccion == "cartera":
+        color = (empresa["color_cartera"] or empresa["color_primario"]
+                 or "#0f766e")
+    else:
+        color = empresa["color_primario"] or "#1e40af"
+    return {"color_primario": color,
             "color_secundario": empresa["color_secundario"],
             "color_letra": empresa["color_letra"] or "#ffffff",
-            "nombre_negocio": empresa["nombre"], "logo": empresa["logo"]}
+            "nombre_negocio": empresa["nombre"], "logo": empresa["logo"],
+            "seccion": seccion}
 
 
 def fija_empresa_activa(usuario, empresa_id: int) -> None:
@@ -87,20 +182,29 @@ def resumen_carrito(carrito: list) -> dict:
             "carrito_monto": monto, "carrito_items": len(carrito)}
 
 
+def mapa_carrito(carrito: list) -> dict:
+    """Cantidad en el carrito por código de producto."""
+    return {i["codigo"]: int(i["cantidad"]) for i in carrito}
+
+
 def datos_carrito(usuario) -> dict:
     """Artículos y monto del carrito del usuario (para el indicador flotante)."""
-    if usuario is None or not usuario["carrito"]:
-        return {"carrito_n": 0, "carrito_monto": 0.0, "carrito_items": 0}
-    try:
-        carrito = json.loads(usuario["carrito"] or "[]")
-    except Exception:
-        carrito = []
-    return resumen_carrito(carrito)
+    if usuario is None:
+        return {"carrito_n": 0, "carrito_monto": 0.0, "carrito_items": 0,
+                "carrito_map": {}}
+    carrito = carrito_obtener(usuario)
+    return {**resumen_carrito(carrito), "carrito_map": mapa_carrito(carrito)}
 
 
 def respuesta(request: Request, plantilla: str, contexto: dict):
     usuario = usuario_actual(request)
-    ctx = {"usuario": usuario, **colores_para(usuario), **datos_carrito(usuario), **contexto}
+    seccion = seccion_actual(request, usuario)
+    # al entrar a una página de sección se recuerda en la sesión: así
+    # Vendedores, Apps y Configuración conservan el color de donde se abren
+    if usuario is not None and seccion_de_ruta(request):
+        fija_seccion(usuario, seccion)
+    ctx = {"usuario": usuario, **colores_para(usuario, seccion),
+           **datos_carrito(usuario), **contexto}
     return plantillas.TemplateResponse(request, plantilla, ctx)
 
 
@@ -441,6 +545,7 @@ def app_datos(request: Request):
     config_empresa = {
         "id": empresa["id"], "nombre": empresa["nombre"],
         "color_primario": empresa["color_primario"],
+        "color_cartera": empresa["color_cartera"],
         "color_letra": empresa["color_letra"],
         "logo": empresa["logo"],
         "usar_clientes": empresa["usar_clientes"],
@@ -452,6 +557,8 @@ def app_datos(request: Request):
         "cliente_predeterminado_codigo": empresa["cliente_predeterminado_codigo"],
         "cliente_predeterminado_nombre": empresa["cliente_predeterminado_nombre"],
         "cliente_predeterminado_nit": empresa["cliente_predeterminado_nit"],
+        "pedidos_activo": empresa["pedidos_activo"],
+        "cartera_activa": empresa["cartera_activa"],
     }
     return {
         "ok": True,
@@ -520,6 +627,31 @@ def app_mis_pedidos(request: Request):
             "WHERE pedido_id = ? ORDER BY id", (p["id"],))
         salida.append(dict(p) | {"lineas": [dict(l) for l in lineas]})
     return {"ok": True, "pedidos": salida}
+
+
+@app.get("/api/app/cartera")
+def app_cartera(request: Request):
+    """Cartera para la app: mismas filas y columnas que ve el panel.
+
+    El vendedor solo recibe sus filas; admin y super reciben todo.
+    """
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    if not bandera(empresa["cartera_activa"]):
+        return _json_error("sección desactivada", 403)
+    usuario = sesion_app(request, empresa["id"])
+    if usuario is None:
+        return _json_error("sesión vencida", 401)
+    resultado = datos_cartera(usuario, empresa)
+    return {"ok": True, **resultado,
+            "mostrar_total": bool(empresa["cartera_mostrar_total"]),
+            "saldo_minimo": cartera_hoja.saldo_minimo(empresa),
+            "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
+            "vendedor": usuario["codigo"]}
 
 
 @app.post("/api/app/pedido")
@@ -1269,8 +1401,90 @@ def inicio(request: Request):
         usuario = protege(request)
     except Redirige:
         return RedirectResponse("/login", status_code=303)
+    empresa = empresa_del(usuario, None)
+    es_super = usuario["rol"] == "super"
+    ver_pedidos = es_super or (empresa is not None and
+                               bandera(empresa["pedidos_activo"]))
+    ver_cartera = es_super or (empresa is not None and
+                               bandera(empresa["cartera_activa"]))
     return respuesta(request, "inicio.html",
-                     {"hora": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                     {"hora": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                      "ver_pedidos": ver_pedidos,
+                      "ver_cartera": ver_cartera})
+
+
+def datos_cartera(usuario, empresa, forzar: bool = False) -> dict:
+    """Cartera ya filtrada para el usuario (la usan el panel y la app).
+
+    Admin y super ven todo; el vendedor solo las filas cuya columna de
+    vendedor coincide con su código o nombre de A2.
+    """
+    estado = cartera_hoja.obtener(empresa, forzar)
+    datos = estado["datos"]
+    columnas, filas, filtros = [], [], []
+    total_saldo, hay_saldo = None, False
+    if datos:
+        indices = cartera_hoja.indices_visibles(empresa, datos["columnas"])
+        columnas = [datos["columnas"][i] for i in indices]
+        visibles = cartera_hoja.filas_para(usuario, empresa, datos)
+        indice_saldo = (cartera_hoja.indice_saldo(empresa, datos["columnas"])
+                        if bandera(empresa["cartera_usar_saldo"]) else -1)
+        if indice_saldo >= 0:
+            hay_saldo = True
+            visibles = cartera_hoja.filas_con_saldo(
+                visibles, indice_saldo, cartera_hoja.saldo_minimo(empresa))
+            total_saldo = cartera_hoja.sumar_saldo(visibles, indice_saldo)
+        indices_filtro = cartera_hoja.indices_filtros(empresa, datos["columnas"])
+        filtros = [{"nombre": datos["columnas"][i],
+                    "opciones": cartera_hoja.opciones_filtro(visibles, i)}
+                   for i in indices_filtro]
+        for fila in visibles:
+            saldo = (cartera_hoja.a_numero(fila[indice_saldo])
+                     if 0 <= indice_saldo < len(fila) else None)
+            filas.append({
+                "celdas": [fila[i] if i < len(fila) else "" for i in indices],
+                "filtros": [fila[i] if i < len(fila) else ""
+                            for i in indices_filtro],
+                "saldo": saldo})
+    return {"columnas": columnas, "filas": filas, "filtros": filtros,
+            "total_saldo": total_saldo, "hay_saldo": hay_saldo,
+            "actualizado": estado["actualizado"], "error": estado["error"],
+            "columnas_todas": datos["columnas"] if datos else []}
+
+
+@app.get("/cartera")
+def cartera(request: Request):
+    """Cartera desde la hoja de Google configurada para la empresa.
+
+    Admin y super ven toda la cartera; el vendedor solo sus filas (columna
+    del vendedor) y nunca puede forzar la actualización.
+    """
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    pedir = request.query_params.get("empresa")
+    empresa_id = None
+    if pedir:
+        try:
+            empresa_id = int(pedir)
+        except ValueError:
+            empresa_id = None
+    if empresa_id and usuario["rol"] == "super":
+        fija_empresa_activa(usuario, empresa_id)
+    empresa = empresa_del(usuario, empresa_id)
+    if empresa is None:
+        return respuesta(request, "cartera.html", {"sin_empresa": True})
+    puede_actualizar = usuario["rol"] in ("super", "admin")
+    forzar = puede_actualizar and request.query_params.get("actualizar") == "1"
+    resultado = datos_cartera(usuario, empresa, forzar)
+    return respuesta(request, "cartera.html", {
+        "empresa": empresa, "sin_empresa": False, **resultado,
+        "mostrar_total": bandera(empresa["cartera_mostrar_total"]),
+        "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
+        "hay_vendedor_col": bool(resultado["columnas_todas"]) and
+        cartera_hoja.indice_vendedor(empresa, resultado["columnas_todas"]) >= 0,
+        "puede_actualizar": puede_actualizar,
+    })
 
 
 # ---------- empresas (solo super) ----------
@@ -1284,11 +1498,8 @@ def requiere_rol(request: Request, roles):
     return usuario
 
 
-@app.get("/empresas")
-def empresas(request: Request):
-    usuario = requiere_rol(request, ("super",))
-    if usuario is None:
-        return RedirectResponse("/inicio", status_code=303)
+def datos_empresas() -> dict:
+    """Empresas con sus vendedores, última sincronización y token del agente."""
     lista = db.filas("SELECT e.*, (SELECT COUNT(*) FROM usuarios u WHERE "
                      "u.empresa_id = e.id AND u.rol = 'vendedor') AS vendedores "
                      "FROM empresas e ORDER BY e.id")
@@ -1297,12 +1508,21 @@ def empresas(request: Request):
     tokens = {a["empresa_id"]: seguridad.descifrar_clave(a["clave_visible"])
               for a in db.filas("SELECT empresa_id, clave_visible FROM usuarios "
                                 "WHERE rol = 'agente'")}
+    return {"lista": lista, "sincs": sincs, "tokens": tokens}
+
+
+@app.get("/empresas")
+def empresas(request: Request):
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/inicio", status_code=303)
     return respuesta(request, "empresas.html",
-                     {"lista": lista, "sincs": sincs, "tokens": tokens})
+                     {**datos_empresas(), "volver": "/empresas"})
 
 
 @app.post("/empresas/token")
-def empresas_token(request: Request, empresa_id: int = Form(...)):
+def empresas_token(request: Request, empresa_id: int = Form(...),
+                   volver: str = Form("/empresas")):
     """Crea o renueva el token del agente de una empresa (lo anula anterior)."""
     import hashlib
     import secrets as _secrets
@@ -1323,17 +1543,22 @@ def empresas_token(request: Request, empresa_id: int = Form(...)):
                     "rol, clave_visible) VALUES (?, 'AGENTE', ?, 'Agente de A2', "
                     "'agente', ?)", (empresa_id, huella,
                                      seguridad.cifrar_clave(token)))
+    if volver.startswith("/configuracion"):
+        return RedirectResponse(f"/configuracion?empresa={empresa_id}&ok=token",
+                                status_code=303)
     return RedirectResponse("/empresas?ok=token", status_code=303)
 
 
 @app.post("/empresas/crear")
-def empresas_crear(request: Request, nombre: str = Form(...)):
+def empresas_crear(request: Request, nombre: str = Form(...),
+                   volver: str = Form("/empresas")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
     if nombre.strip():
         db.ejecutar("INSERT INTO empresas (nombre) VALUES (?)", (nombre.strip(),))
-    return RedirectResponse("/empresas", status_code=303)
+    destino = volver if volver.startswith("/") else "/empresas"
+    return RedirectResponse(f"{destino}?ok=empresa", status_code=303)
 
 
 # ---------- apps habilitadas (tokens de la app Android) ----------
@@ -1366,8 +1591,15 @@ def apps(request: Request, empresa: int | None = None):
         return RedirectResponse("/inicio", status_code=303)
     lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
                      "ORDER BY id DESC", (emp["id"],))
+    # los tokens de la app solo los ve el super usuario; el admin sigue
+    # viéndolos únicamente al crearlos
+    tokens = {}
+    if usuario["rol"] == "super":
+        tokens = {a["id"]: seguridad.descifrar_clave(a["token_visible"] or "")
+                  for a in lista}
     return respuesta(request, "apps.html",
-                     {"e": emp, "apps": lista, "token_nuevo": None})
+                     {"e": emp, "apps": lista, "token_nuevo": None,
+                      "tokens": tokens})
 
 
 @app.post("/apps/crear")
@@ -1383,13 +1615,19 @@ def apps_crear(request: Request, empresa_id: int = Form(...),
         return RedirectResponse("/apps?error=permiso", status_code=303)
     token = _secrets.token_urlsafe(32)
     huella = "app$" + hashlib.sha256(token.encode()).hexdigest()
-    db.ejecutar("INSERT INTO app_tokens (empresa_id, nombre, token_hash) "
-                "VALUES (?, ?, ?)",
-                (emp["id"], nombre.strip() or "Teléfono", huella))
+    db.ejecutar("INSERT INTO app_tokens (empresa_id, nombre, token_hash, "
+                "token_visible) VALUES (?, ?, ?, ?)",
+                (emp["id"], nombre.strip() or "Teléfono", huella,
+                 seguridad.cifrar_clave(token)))
     lista = db.filas("SELECT * FROM app_tokens WHERE empresa_id = ? "
                      "ORDER BY id DESC", (emp["id"],))
+    tokens = {}
+    if usuario["rol"] == "super":
+        tokens = {a["id"]: seguridad.descifrar_clave(a["token_visible"] or "")
+                  for a in lista}
     return respuesta(request, "apps.html",
-                     {"e": emp, "apps": lista, "token_nuevo": token})
+                     {"e": emp, "apps": lista, "token_nuevo": token,
+                      "tokens": tokens})
 
 
 def _volver_apps(usuario, empresa) -> RedirectResponse:
@@ -1626,7 +1864,26 @@ def configuracion(request: Request):
     if pedir:
         fija_empresa_activa(usuario, int(pedir))
     empresa = empresa_del(usuario, pedir and int(pedir))
-    return respuesta(request, "configuracion.html", {"e": empresa})
+    # columnas de la hoja de Cartera: las últimas que se descargaron, para
+    # poder elegirlas sin volver a consultar Google al abrir esta página
+    columnas_hoja, columnas_guardadas, filtros_guardados = [], [], []
+    if empresa is not None:
+        columnas_guardadas = cartera_hoja.columnas_guardadas(empresa)
+        filtros_guardados = cartera_hoja.filtros_guardados(empresa)
+        guardado = cartera_hoja.cache(empresa["id"])
+        if guardado["datos"]:
+            columnas_hoja = guardado["datos"]["columnas"]
+        # primero las columnas elegidas, en el orden guardado: así se ve aquí
+        # igual que en Cartera y se pueden mover con las flechas
+        if columnas_hoja and columnas_guardadas:
+            orden = [c for c in columnas_guardadas if c in columnas_hoja]
+            columnas_hoja = orden + [c for c in columnas_hoja if c not in orden]
+    return respuesta(request, "configuracion.html",
+                     {"e": empresa, **datos_empresas(),
+                      "volver": "/configuracion",
+                      "columnas_hoja": columnas_hoja,
+                      "columnas_guardadas": columnas_guardadas,
+                      "filtros_guardados": filtros_guardados})
 
 
 def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> tuple[str, str]:
@@ -1664,6 +1921,7 @@ def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> tuple[str, str]
 def configuracion_post(request: Request, empresa_id: int = Form(...),
                        nombre: str = Form(""), deposito: str = Form("1"),
                        color_primario: str = Form("#1e40af"),
+                       color_cartera: str = Form("#0f766e"),
                        color_letra: str = Form("#ffffff"),
                        logo_file: UploadFile | str = File(None),
                        quitar_logo: str = Form(""),
@@ -1675,11 +1933,22 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        cliente_predeterminado: str = Form(""),
                        formato_numero: str = Form("{vendedor}-{anio}{numero}"),
                        reinicio_numero: str = Form("anual"),
-                       digitos_numero: int = Form(4)):
+                       digitos_numero: int = Form(4),
+                       cartera_url: str = Form(""),
+                       cartera_columnas: list[str] = Form([]),
+                       cartera_columna_vendedor: str = Form(""),
+                       cartera_filtros: list[str] = Form([]),
+                       cartera_columna_saldo: str = Form(""),
+                       cartera_saldo_minimo: str = Form(""),
+                       cartera_mostrar_total: str = Form("1"),
+                       pedidos_activo: str = Form("1"),
+                       cartera_activa: str = Form("1"),
+                       cartera_usar_saldo: str = Form("1")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    actual = db.fila("SELECT logo FROM empresas WHERE id = ?", (empresa_id,))
+    actual = db.fila("SELECT logo, cartera_url FROM empresas WHERE id = ?",
+                     (empresa_id,))
     logo = (actual or {"logo": None})["logo"]
     if quitar_logo:
         logo = None
@@ -1691,6 +1960,33 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
         subido, error_logo = guardar_logo(empresa_id, logo_file)
     if subido:
         logo = subido
+    # enlace de la hoja de Cartera: se guarda ya convertido a descarga CSV
+    url_previa = ((actual["cartera_url"] if actual else "") or "").strip()
+    cartera_destino = (cartera_url or "").strip()
+    error_cartera = ""
+    if cartera_destino:
+        normalizado = cartera_hoja.url_csv(cartera_destino)
+        if normalizado:
+            cartera_destino = normalizado
+        else:
+            cartera_destino = url_previa
+            error_cartera = "El enlace de Cartera debe empezar con https://"
+    columnas_cartera = [c.strip() for c in (cartera_columnas or []) if c.strip()]
+    filtros_cartera = [c.strip() for c in (cartera_filtros or []) if c.strip()]
+    minimo_saldo = cartera_hoja.a_numero(cartera_saldo_minimo) or 0.0
+    if minimo_saldo < 0:
+        minimo_saldo = 0.0
+    mostrar_total = 1 if str(cartera_mostrar_total or "").strip() == "1" else 0
+    pedidos_on = 1 if str(pedidos_activo or "").strip() == "1" else 0
+    cartera_on = 1 if str(cartera_activa or "").strip() == "1" else 0
+    usar_saldo = 1 if str(cartera_usar_saldo or "").strip() == "1" else 0
+    if cartera_destino != url_previa:
+        cartera_hoja.borrar_cache(empresa_id)
+        if not columnas_cartera:
+            # hoja nueva y sin columnas marcadas: nada de la anterior aplica
+            cartera_columna_vendedor = ""
+            filtros_cartera = []
+            cartera_columna_saldo = ""
     # la barra usa el color principal; ya no se pide un color aparte
     if filtro not in ("todo", "positivo", "personalizado"):
         filtro = "todo"
@@ -1721,7 +2017,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
         else:
             codigo_def = ""
     db.ejecutar("UPDATE empresas SET nombre = ?, deposito_modo = ?, "
-                "ocultar_agotados = ?, color_primario = ?, color_secundario = ?, "
+                "ocultar_agotados = ?, color_primario = ?, color_cartera = ?, "
+                "color_secundario = ?, "
                 "color_letra = ?, logo = ?, filtro_existencia = ?, "
                 "existencia_minima = ?, usar_clientes = ?, "
                 "usar_autorizados = ?, usar_clientes_nuevos = ?, "
@@ -1729,22 +2026,54 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "cliente_predeterminado_nombre = ?, "
                 "cliente_predeterminado_nit = ?, "
                 "cliente_predeterminado_rif = ?, formato_numero = ?, "
-                "reinicio_numero = ?, digitos_numero = ? WHERE id = ?",
+                "reinicio_numero = ?, digitos_numero = ?, cartera_url = ?, "
+                "cartera_columnas = ?, cartera_columna_vendedor = ?, "
+                "cartera_filtros = ?, cartera_columna_saldo = ?, "
+                "cartera_saldo_minimo = ?, cartera_mostrar_total = ?, "
+                "pedidos_activo = ?, cartera_activa = ?, "
+                "cartera_usar_saldo = ? "
+                "WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
-                 color_primario, color_primario, color_letra, logo,
+                 color_primario, color_cartera, color_primario, color_letra, logo,
                  filtro, max(0, minimo), usar_clientes_on,
                  usar_autorizados_on, usar_clientes_nuevos_on,
                  codigo_def or None, nombre_def, nit_def, rif_def,
                  formato_numero.strip(), reinicio_numero, digitos_numero,
+                 cartera_destino or None,
+                 json.dumps(columnas_cartera, ensure_ascii=False),
+                 (cartera_columna_vendedor or "").strip() or None,
+                 json.dumps(filtros_cartera, ensure_ascii=False),
+                 (cartera_columna_saldo or "").strip() or None,
+                 minimo_saldo, mostrar_total,
+                 pedidos_on, cartera_on, usar_saldo,
                  empresa_id))
     fija_empresa_activa(usuario, empresa_id)  # conserva el contexto tras guardar
-    if error_logo:
-        # el resto de la configuración sí se guardó; se avisa del logo
+    if error_logo or error_cartera:
+        # el resto de la configuración sí se guardó; se avisa de lo que falló
         import urllib.parse
         return RedirectResponse(
-            f"/configuracion?empresa={empresa_id}&error={urllib.parse.quote(error_logo)}",
+            f"/configuracion?empresa={empresa_id}"
+            f"&error={urllib.parse.quote(error_logo or error_cartera)}",
             status_code=303)
     return RedirectResponse(f"/configuracion?ok=1&empresa={empresa_id}", status_code=303)
+
+
+@app.post("/configuracion/cartera/columnas")
+def configuracion_cartera_columnas(request: Request, url: str = Form("")):
+    """Lee los títulos de la hoja de Cartera para poder elegir las columnas."""
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return {"ok": False, "mensaje": "Solo el super usuario puede cambiar esto."}
+    destino = cartera_hoja.url_csv(url)
+    if not destino:
+        return {"ok": False, "mensaje": "El enlace debe empezar con https://"}
+    try:
+        datos = cartera_hoja.parsear(cartera_hoja.descargar(destino))
+    except Exception as e:                                  # noqa: BLE001
+        return {"ok": False, "mensaje": cartera_hoja.mensaje_error(e)}
+    return {"ok": True, "columnas": datos["columnas"],
+            "vendedor": cartera_hoja.nombre_vendedor(datos["columnas"]),
+            "filas": len(datos["filas"])}
 
 
 # ---------- catálogo ----------
@@ -1864,26 +2193,51 @@ def catalogo_buscar(request: Request, q: str = "", limite: int = 100):
     """Búsqueda dinámica para el catálogo (se consulta mientras se escribe)."""
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
     if usuario is None:
-        return {"items": [], "total": 0, "sin_sesion": True}
+        return {"items": [], "total": 0, "sin_sesion": True, "carrito_map": {}}
     empresa = empresa_del(usuario, request.query_params.get("empresa") and
                           int(request.query_params["empresa"]))
     if empresa is None:
-        return {"items": [], "total": 0}
+        return {"items": [], "total": 0, "carrito_map": {}}
     condicion, valores, orden, orden_valores = condicion_catalogo(empresa, q)
     total = db.fila(f"SELECT COUNT(*) AS c FROM productos p WHERE {condicion}", tuple(valores))["c"]
     items = productos_de(empresa, condicion, valores, limite, 0, orden, orden_valores)
-    return {"total": total, "items": items}
+    return {"total": total, "items": items,
+            "carrito_map": mapa_carrito(carrito_obtener(usuario))}
 
 
 # ---------- pedidos ----------
 
-import json
+
+def empresa_carrito(usuario):
+    """Empresa del carrito: la activa o, para el super, la primera disponible."""
+    empresa_id = usuario["empresa_actual"]
+    if empresa_id:
+        return empresa_id
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return None
+    # el super recuerda la empresa para las siguientes operaciones
+    fija_empresa_activa(usuario, empresa["id"])
+    return empresa["id"]
 
 
 def carrito_obtener(usuario) -> list:
+    empresa_id = empresa_carrito(usuario)
+    if empresa_id:
+        fila = db.fila(
+            "SELECT carrito FROM carritos WHERE usuario_id = ? AND empresa_id = ?",
+            (usuario["id"], empresa_id))
+        if fila is not None and fila["carrito"]:
+            try:
+                return json.loads(fila["carrito"])
+            except Exception:
+                return []
     if not usuario["carrito"]:
         return []
-    return json.loads(usuario["carrito"])
+    try:
+        return json.loads(usuario["carrito"])
+    except Exception:
+        return []
 
 
 def carrito_guardar(usuario, carrito: list) -> None:
@@ -1892,12 +2246,15 @@ def carrito_guardar(usuario, carrito: list) -> None:
     Así el pedido en curso no se pierde al cerrar la página: al volver a
     entrar, con la sesión que sea, aparece lo que había agregado.
     """
+    empresa_id = empresa_carrito(usuario)
+    if empresa_id is None:
+        return
     db.ejecutar(
         "INSERT INTO carritos (usuario_id, empresa_id, carrito, actualizado) "
         "VALUES (?, ?, ?, datetime('now','localtime')) "
         "ON CONFLICT(usuario_id, empresa_id) DO UPDATE SET "
         "carrito = excluded.carrito, actualizado = excluded.actualizado",
-        (usuario["id"], usuario["empresa_actual"],
+        (usuario["id"], empresa_id,
          json.dumps(carrito, ensure_ascii=False)))
     # deja limpia la copia vieja que vivía en la sesión
     db.ejecutar("UPDATE sesiones SET carrito = NULL WHERE token = ?",
@@ -1940,7 +2297,8 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
         if request.headers.get("x-requested-with") == "fetch":
             return {"ok": False,
                     "mensaje": "No hay existencia suficiente de este producto.",
-                    **resumen_carrito(carrito)}
+                    **resumen_carrito(carrito),
+                    "carrito_map": mapa_carrito(carrito)}
         return RedirectResponse("/catalogo?aviso=sin_stock", status_code=303)
     sumar = min(cantidad, disponible - actual)
     for item in carrito:
@@ -1952,7 +2310,8 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
                         "precio": producto["precio"], "cantidad": sumar})
     carrito_guardar(usuario, carrito)
     if request.headers.get("x-requested-with") == "fetch":
-        respuesta = {"ok": True, **resumen_carrito(carrito)}
+        respuesta = {"ok": True, **resumen_carrito(carrito),
+                     "carrito_map": mapa_carrito(carrito)}
         if sumar < cantidad:
             respuesta["tope"] = True
             respuesta["mensaje"] = f"Solo hay {disponible} en existencia."
@@ -1960,24 +2319,91 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
     return RedirectResponse("/pedido", status_code=303)
 
 
-@app.post("/pedido/cantidad")
-def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: float = Form(1)):
+@app.post("/pedido/restar")
+def pedido_restar(request: Request, codigo: str = Form(...), cantidad: float = Form(1)):
+    """Quita unidades de un producto desde el catálogo (botón −)."""
     usuario = requiere_rol(request, ("vendedor", "admin", "super"))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    empresa = empresa_del(usuario, None)
-    if empresa is None:
-        return RedirectResponse("/pedido", status_code=303)
+    cantidad = max(1, int(cantidad or 1))
     carrito = carrito_obtener(usuario)
-    cantidad = int(cantidad or 0)
     item = next((i for i in carrito if i["codigo"] == codigo), None)
     if item is not None:
-        disponible = int(existencia_visible(empresa, codigo))
-        if cantidad <= 0 or disponible <= 0:
+        item["cantidad"] -= cantidad
+        if item["cantidad"] <= 0:
             carrito = [i for i in carrito if i["codigo"] != codigo]
-        else:
-            item["cantidad"] = min(cantidad, disponible)
     carrito_guardar(usuario, carrito)
+    if request.headers.get("x-requested-with") == "fetch":
+        return {"ok": True, **resumen_carrito(carrito),
+                "carrito_map": mapa_carrito(carrito)}
+    return RedirectResponse("/catalogo", status_code=303)
+
+
+@app.post("/pedido/cantidad")
+def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: str = Form("1")):
+    """Fija la cantidad exacta de un producto (0 o vacío lo saca del carrito)."""
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    es_fetch = request.headers.get("x-requested-with") == "fetch"
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        if es_fetch:
+            return {"ok": False, "mensaje": "No hay empresa activa."}
+        return RedirectResponse("/pedido", status_code=303)
+    carrito = carrito_obtener(usuario)
+    texto = (cantidad or "").strip().replace(",", ".")
+    if not texto:
+        numero = 0
+    else:
+        try:
+            numero = int(float(texto))
+        except ValueError:
+            if es_fetch:
+                return {"ok": False, "mensaje": "Cantidad no válida.",
+                        **resumen_carrito(carrito),
+                        "carrito_map": mapa_carrito(carrito)}
+            return RedirectResponse("/pedido", status_code=303)
+    item = next((i for i in carrito if i["codigo"] == codigo), None)
+    tope = False
+    disponible = 0
+    if numero <= 0:
+        carrito = [i for i in carrito if i["codigo"] != codigo]
+    else:
+        producto = db.fila(
+            "SELECT codigo, descripcion, precio FROM productos "
+            "WHERE empresa_id = ? AND codigo = ? AND internet = 1 AND activo = 1",
+            (empresa["id"], codigo))
+        if producto is None:
+            if es_fetch:
+                return {"ok": False, "mensaje": "Producto no disponible.",
+                        **resumen_carrito(carrito),
+                        "carrito_map": mapa_carrito(carrito)}
+            return RedirectResponse("/pedido", status_code=303)
+        disponible = int(existencia_visible(empresa, codigo))
+        if disponible <= 0:
+            carrito = [i for i in carrito if i["codigo"] != codigo]
+            tope = True
+        else:
+            nueva = min(numero, disponible)
+            tope = nueva < numero
+            if item is not None:
+                item["cantidad"] = nueva
+            else:
+                carrito.append({"codigo": producto["codigo"],
+                                "descripcion": producto["descripcion"],
+                                "precio": producto["precio"],
+                                "cantidad": nueva})
+    carrito_guardar(usuario, carrito)
+    if es_fetch:
+        respuesta = {"ok": True, **resumen_carrito(carrito),
+                     "carrito_map": mapa_carrito(carrito)}
+        if tope:
+            respuesta["tope"] = True
+            respuesta["mensaje"] = (
+                f"Solo hay {disponible} en existencia." if disponible > 0
+                else "No hay existencia de este producto.")
+        return respuesta
     return RedirectResponse("/pedido", status_code=303)
 
 

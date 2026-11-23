@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{# Cartera usa todo el ancho de la ventana: así las columnas caben sin
+   partir los títulos ni los nombres #}
+{% block clase_main %}pantalla-ancha{% endblock %}
+{% block contenido %}
+<h1>Cartera{% if empresa %} — {{ empresa.nombre }}{% endif %}</h1>
+{% if sin_empresa %}
+<p class="error">Aún no hay empresas configuradas.</p>
+{% elif not hay_enlace %}
+<div class="caja">
+  <p style="margin:0"><strong>Aún no hay cartera configurada.</strong></p>
+  <p class="sub" style="margin:.4rem 0 0">
+    {% if usuario.rol == 'super' %}
+    Pega el enlace de la hoja de Google en
+    <a href="/configuracion">Configuración</a> (columna Cartera).
+    {% else %}
+    El super usuario debe configurar el enlace de la hoja de cartera.
+    {% endif %}
+  </p>
+</div>
+{% else %}
+<p class="sub">
+  {% if actualizado %}Actualizado: {{ actualizado }}{% endif %}
+  {% if puede_actualizar %} — <a href="/cartera?actualizar=1">Actualizar ahora</a>{% endif %}
+  — {{ filas|length }} registro{{ '' if filas|length == 1 else 's' }}
+  {%- if usuario.rol == 'vendedor' %} de tu cartera{% endif %}
+</p>
+{% if hay_saldo and mostrar_total and total_saldo is not none %}
+<div class="cartera-total">
+  <span class="cartera-total-etiqueta">Saldo total</span>
+  <strong class="cartera-total-valor" id="cartera-total-valor">{{ total_saldo | num }}</strong>
+</div>
+{% endif %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if usuario.rol == 'vendedor' and not hay_vendedor_col %}
+<p class="error">La cartera todavía no está separada por vendedor. Pídele al
+  administrador que configure la columna del vendedor en Configuración.</p>
+{% endif %}
+{% if not columnas %}
+<div class="caja"><p class="sub" style="margin:0">La hoja no tiene columnas para mostrar.</p></div>
+{% elif not filas %}
+<div class="caja"><p class="sub" style="margin:0">
+  {% if usuario.rol == 'vendedor' %}
+  No hay registros para tu vendedor en la cartera. Si deberías tener, avísale
+  al administrador para revisar cómo aparece tu nombre en la hoja.
+  {% else %}
+  No hay registros para mostrar.
+  {% endif %}
+</p></div>
+{% else %}
+<input id="cartera-filtro" class="cartera-filtro" autocomplete="off"
+       placeholder="Buscar en la cartera…">
+{% if filtros %}
+<div class="cartera-filtros" id="cartera-filtros">
+  {% for f in filtros %}
+  <label>{{ f.nombre }}
+    <select data-filtro="{{ loop.index0 }}">
+      <option value="">Todos</option>
+      {% for op in f.opciones %}<option value="{{ op }}">{{ op }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+</div>
+{% endif %}
+<div class="cartera-marco">
+  <table class="cartera-tabla">
+    <thead><tr>{% for c in columnas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody id="cartera-filas">
+    {% for f in filas %}
+      <tr data-saldo="{{ f.saldo if f.saldo is not none else '' }}">
+        {% for c in columnas %}<td data-col="{{ c }}">{{ f.celdas[loop.index0] }}</td>{% endfor %}
+        {% for v in f.filtros %}<td class="dato-filtro" style="display:none">{{ v }}</td>{% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="sub" id="cartera-cuenta">{{ filas|length }} registro{{ '' if filas|length == 1 else 's' }}.</p>
+<script>
+(function () {
+  var entrada = document.getElementById('cartera-filtro');
+  var cuerpo = document.getElementById('cartera-filas');
+  if (!entrada || !cuerpo) return;
+  var cuenta = document.getElementById('cartera-cuenta');
+  var filas = Array.prototype.slice.call(cuerpo.rows);
+  var total = filas.length;
+  var selects = Array.prototype.slice.call(
+    document.querySelectorAll('#cartera-filtros select'));
+  // mayúsculas y sin tildes, para que "Perez" encuentre "Pérez"
+  function normal(t) {
+    var n = String(t || '').normalize('NFD');
+    var salida = '';
+    for (var i = 0; i < n.length; i++) {
+      var codigo = n.charCodeAt(i);
+      if (codigo < 0x0300 || codigo > 0x036f) salida += n.charAt(i);
+    }
+    return salida.toUpperCase();
+  }
+  var textos = filas.map(function (f) { return normal(f.textContent); });
+  // valores de cada fila en las columnas que tienen filtro (van ocultas)
+  var valores = filas.map(function (f) {
+    return Array.prototype.slice.call(f.querySelectorAll('td.dato-filtro'))
+      .map(function (td) { return td.textContent.trim(); });
+  });
+  // saldo total de las filas que se están viendo
+  var bloqueTotal = document.getElementById('cartera-total-valor');
+  var saldos = filas.map(function (f) {
+    var s = f.getAttribute('data-saldo');
+    if (s === null || s === '') return null;
+    var n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  });
+  function miles(v) {
+    return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+  function filtrar() {
+    var q = normal(entrada.value.trim());
+    var elegidos = selects.map(function (s) { return s.value; });
+    var visibles = 0;
+    var suma = 0;
+    for (var i = 0; i < filas.length; i++) {
+      var ver = !q || textos[i].indexOf(q) !== -1;
+      if (ver) {
+        for (var k = 0; k < elegidos.length; k++) {
+          if (elegidos[k] && valores[i][k] !== elegidos[k]) {
+            ver = false;
+            break;
+          }
+        }
+      }
+      filas[i].style.display = ver ? '' : 'none';
+      if (ver) {
+        visibles++;
+        if (saldos[i] !== null) suma += saldos[i];
+      }
+    }
+    if (cuenta) {
+      cuenta.textContent = visibles + ' de ' + total + ' registro' +
+        (total === 1 ? '' : 's') + '.';
+    }
+    if (bloqueTotal) bloqueTotal.textContent = miles(suma);
+  }
+  // ---- filtros en cascada: cada desplegable solo muestra los valores que
+  // existen con los otros filtros y la búsqueda aplicados ----
+  var opcionesBase = selects.map(function (s) {
+    return Array.prototype.slice.call(s.options)
+      .map(function (o) { return o.value; })
+      .filter(function (v) { return v !== ''; });
+  });
+  function disponibles(indice) {
+    var q = normal(entrada.value.trim());
+    var elegidos = selects.map(function (s) { return s.value; });
+    var hay = {};
+    for (var i = 0; i < filas.length; i++) {
+      if (q && textos[i].indexOf(q) === -1) continue;
+      var pasa = true;
+      for (var k = 0; k < elegidos.length; k++) {
+        if (k === indice || !elegidos[k]) continue;
+        if (valores[i][k] !== elegidos[k]) { pasa = false; break; }
+      }
+      if (pasa) hay[valores[i][indice]] = true;
+    }
+    return hay;
+  }
+  function reconstruir(indice, hay) {
+    var s = selects[indice];
+    var actual = s.value;
+    s.innerHTML = '';
+    var todos = document.createElement('option');
+    todos.value = '';
+    todos.textContent = 'Todos';
+    s.appendChild(todos);
+    var lista = opcionesBase[indice] || [];
+    for (var t = 0; t < lista.length; t++) {
+      if (!hay[lista[t]]) continue;
+      var o = document.createElement('option');
+      o.value = lista[t];
+      o.textContent = lista[t];
+      s.appendChild(o);
+    }
+    s.value = (actual && hay[actual]) ? actual : '';
+  }
+  function aplicar() {
+    var i;
+    // lo elegido que ya no existe con los demás filtros se suelta
+    for (i = 0; i < selects.length; i++) {
+      var hay = disponibles(i);
+      if (selects[i].value && !hay[selects[i].value]) selects[i].value = '';
+    }
+    for (i = 0; i < selects.length; i++) reconstruir(i, disponibles(i));
+    filtrar();
+  }
+  var temporizador = null;
+  entrada.addEventListener('input', function () {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(aplicar, 120);
+  });
+  selects.forEach(function (s) { s.addEventListener('change', aplicar); });
+})();
+</script>
+{% endif %}
+{% endif %}
+{% endblock %}

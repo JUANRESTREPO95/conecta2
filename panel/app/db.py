@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS empresas (
     activa INTEGER NOT NULL DEFAULT 1,
     logo TEXT,
     color_primario TEXT DEFAULT '#1e40af',
+    color_cartera TEXT DEFAULT '#0f766e',
     color_secundario TEXT DEFAULT '#64748b',
     deposito_modo TEXT NOT NULL DEFAULT '1',        -- '1', '2' o 'suma'
     ocultar_agotados INTEGER NOT NULL DEFAULT 1,
@@ -37,7 +38,8 @@ CREATE TABLE IF NOT EXISTS sesiones (
     token TEXT PRIMARY KEY,
     usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
     creado TEXT DEFAULT (datetime('now', 'localtime')),
-    expira TEXT NOT NULL
+    expira TEXT NOT NULL,
+    seccion TEXT DEFAULT 'pedidos'
 );
 
 -- Catálogo en caché del panel (lo llena el sincronizador/agente)
@@ -171,6 +173,7 @@ CREATE TABLE IF NOT EXISTS app_tokens (
     empresa_id INTEGER NOT NULL REFERENCES empresas(id),
     nombre TEXT NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
+    token_visible TEXT,                 -- cifrado reversible; solo lo ve el super
     activo INTEGER NOT NULL DEFAULT 1,
     creado TEXT DEFAULT (datetime('now', 'localtime')),
     ultimo_uso TEXT
@@ -195,6 +198,15 @@ CREATE TABLE IF NOT EXISTS consecutivos (
     anio INTEGER NOT NULL,
     ultimo INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (empresa_id, vendedor_id, anio)
+);
+
+-- Cartera: copia de la hoja de Google publicada (una por empresa)
+-- datos guarda {"columnas": [...], "filas": [[...], ...]}
+CREATE TABLE IF NOT EXISTS cartera (
+    empresa_id INTEGER PRIMARY KEY REFERENCES empresas(id),
+    datos TEXT,
+    actualizado TEXT,
+    error TEXT
 );
 """
 
@@ -222,7 +234,9 @@ def esquema() -> None:  # crea tablas si faltan
     # columnas añadidas después del primer arranque
     for alter in (
         "ALTER TABLE sesiones ADD COLUMN empresa_activa INTEGER DEFAULT NULL",
+        "ALTER TABLE sesiones ADD COLUMN seccion TEXT DEFAULT 'pedidos'",
         "ALTER TABLE empresas ADD COLUMN color_letra TEXT DEFAULT '#ffffff'",
+        "ALTER TABLE empresas ADD COLUMN color_cartera TEXT DEFAULT '#0f766e'",
         "ALTER TABLE sesiones ADD COLUMN carrito TEXT DEFAULT NULL",
         "ALTER TABLE productos ADD COLUMN codigo_a2 TEXT",
         "ALTER TABLE empresas ADD COLUMN filtro_existencia TEXT DEFAULT NULL",
@@ -253,6 +267,17 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE clientes ADD COLUMN direccion TEXT",
         "ALTER TABLE clientes ADD COLUMN telefono TEXT",
         "ALTER TABLE empresas ADD COLUMN usar_clientes_nuevos INTEGER DEFAULT 0",
+        "ALTER TABLE app_tokens ADD COLUMN token_visible TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_url TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_columnas TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_columna_vendedor TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_filtros TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_columna_saldo TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_saldo_minimo REAL DEFAULT 0",
+        "ALTER TABLE empresas ADD COLUMN cartera_mostrar_total INTEGER DEFAULT 1",
+        "ALTER TABLE empresas ADD COLUMN pedidos_activo INTEGER DEFAULT 1",
+        "ALTER TABLE empresas ADD COLUMN cartera_activa INTEGER DEFAULT 1",
+        "ALTER TABLE empresas ADD COLUMN cartera_usar_saldo INTEGER DEFAULT 1",
     ):
         try:
             con.execute(alter)
