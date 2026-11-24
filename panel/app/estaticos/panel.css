@@ -330,6 +330,9 @@ main.pantalla-ancha { max-width: 1900px; }
 .cartera-tabla td { white-space: normal; overflow-wrap: normal; word-break: normal;
   padding: .5rem .55rem; }
 .cartera-tabla th, .cartera-tabla td { vertical-align: top; }
+.cartera-tabla a { color: var(--primario); font-weight: 700;
+  text-decoration: underline; }
+.cartera-tabla a:hover { text-decoration: none; }
 
 /* en el celular cada registro es una tarjeta con el título de cada dato */
 @media (max-width: 640px) {

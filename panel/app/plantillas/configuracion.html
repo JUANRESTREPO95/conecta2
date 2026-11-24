@@ -171,6 +171,26 @@
       <button type="button" class="btn-neutro" id="cartera-traer">Traer columnas</button>
       <span class="sub" id="cartera-aviso"></span>
 
+      <label>Hoja de facturas (columna A número, columna B enlace)
+        <input name="cartera_facturas_url" id="cartera-facturas-url"
+               value="{{ e.cartera_facturas_url or '' }}"
+               placeholder="https://docs.google.com/spreadsheets/d/…"
+               autocomplete="off">
+      </label>
+      <p class="sub" style="margin-top:-6px">Sirve el enlace normal de edición o
+        el publicado. Se actualiza junto con la cartera (cada 10 minutos).</p>
+
+      <label>Columna con el número de factura
+        <select name="cartera_columna_factura" id="cartera-col-factura">
+          <option value="">Detectar sola (Factura / Documento)</option>
+          {% for c in columnas_hoja %}
+          <option value="{{ c }}" {% if e.cartera_columna_factura == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="sub" style="margin-top:-6px">Si el número de esa columna está en
+        la hoja de facturas, en Cartera se vuelve un enlace para abrirla.</p>
+
       <p class="sub" style="margin:.9rem 0 .2rem">Columnas que se muestran en Cartera</p>
       <p class="sub" style="margin:0 0 .25rem">Marca las que quieras y usa ↑ ↓ para
         ponerlas en el orden en que deben salir.</p>
@@ -264,9 +284,11 @@
   var cajaFiltros = document.getElementById('cartera-filtros-cols');
   var select = document.getElementById('cartera-col-vendedor');
   var selectSaldo = document.getElementById('cartera-col-saldo');
+  var selectFactura = document.getElementById('cartera-col-factura');
   var guardadas = {{ columnas_guardadas | tojson }};
   var guardadoVendedor = {{ (e.cartera_columna_vendedor or '') | tojson }};
   var guardadoSaldo = {{ (e.cartera_columna_saldo or '') | tojson }};
+  var guardadoFactura = {{ (e.cartera_columna_factura or '') | tojson }};
   var filtrosGuardados = {{ filtros_guardados | tojson }};
 
   function esc(v) {
@@ -300,6 +322,8 @@
     var htmlFiltros = '';
     var opciones = '<option value="">Detectar por el nombre "Vendedor"</option>';
     var opcionesSaldo = '<option value="">Sin columna de saldo</option>';
+    var opcionesFactura =
+      '<option value="">Detectar sola (Factura / Documento)</option>';
     for (var i = 0; i < orden.length; i++) {
       var marcada = todas || guardadas.indexOf(orden[i]) !== -1;
       html += htmlColumna(orden[i], marcada);
@@ -311,14 +335,17 @@
               nombre + '"' + (enFiltros ? ' checked' : '') + '> ' + nombre + '</label>';
       opciones += '<option value="' + nombre + '">' + nombre + '</option>';
       opcionesSaldo += '<option value="' + nombre + '">' + nombre + '</option>';
+      opcionesFactura += '<option value="' + nombre + '">' + nombre + '</option>';
     }
     caja.innerHTML = html;
     if (cajaFiltros) cajaFiltros.innerHTML = htmlFiltros;
     select.innerHTML = opciones;
     if (selectSaldo) selectSaldo.innerHTML = opcionesSaldo;
+    if (selectFactura) selectFactura.innerHTML = opcionesFactura;
     if (vendedor) select.value = vendedor;
     else if (guardadoVendedor) select.value = guardadoVendedor;
     if (selectSaldo && guardadoSaldo) selectSaldo.value = guardadoSaldo;
+    if (selectFactura && guardadoFactura) selectFactura.value = guardadoFactura;
   }
   // las flechas mueven la columna arriba o abajo (el orden se guarda así)
   caja.addEventListener('click', function (e) {
