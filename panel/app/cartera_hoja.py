@@ -139,6 +139,33 @@ def parsear(texto: str) -> dict:
     return {"columnas": columnas, "filas": filas}
 
 
+def parsear_facturas(texto: str) -> dict:
+    """Hoja de facturas: columna A = número, columna B = enlace.
+
+    No necesita encabezado: las filas cuyo enlace no empiece por http(s)
+    se saltan solas (por ejemplo, una fila de títulos).
+    """
+    texto = (texto or "").lstrip("\ufeff")
+    if not texto.strip():
+        raise ValueError("La hoja de facturas está vacía.")
+    try:
+        dialecto = csv.Sniffer().sniff(texto[:4096], delimiters=",;\t")
+    except csv.Error:
+        dialecto = csv.excel
+    pares = []
+    for fila in csv.reader(io.StringIO(texto), dialecto):
+        if len(fila) < 2:
+            continue
+        numero = str(fila[0]).strip()
+        url = str(fila[1]).strip()
+        if not numero or not url.lower().startswith(("http://", "https://")):
+            continue
+        pares.append([numero, url])
+        if len(pares) >= MAX_FILAS:
+            break
+    return {"pares": pares}
+
+
 # ---------- caché ----------
 
 def _guardar(empresa_id: int, datos: dict | None, error: str = "") -> None:
@@ -202,17 +229,104 @@ def borrar_cache(empresa_id: int) -> None:
     db.ejecutar("DELETE FROM cartera WHERE empresa_id = ?", (empresa_id,))
 
 
+# ---------- hoja de facturas ----------
+
+def _guardar_facturas(empresa_id: int, datos: dict | None,
+                      error: str = "") -> None:
+    db.ejecutar(
+        "INSERT INTO cartera_facturas (empresa_id, datos, actualizado, error) "
+        "VALUES (?, ?, datetime('now','localtime'), ?) "
+        "ON CONFLICT(empresa_id) DO UPDATE SET datos = excluded.datos, "
+        "actualizado = excluded.actualizado, error = excluded.error",
+        (empresa_id, json.dumps(datos, ensure_ascii=False) if datos else None,
+         error or None))
+
+
+def cache_facturas(empresa_id: int) -> dict:
+    fila = db.fila("SELECT datos, actualizado, error FROM cartera_facturas "
+                   "WHERE empresa_id = ?", (empresa_id,))
+    if fila is None:
+        return {"datos": None, "actualizado": None, "error": ""}
+    try:
+        datos = json.loads(fila["datos"]) if fila["datos"] else None
+    except (TypeError, ValueError):
+        datos = None
+    return {"datos": datos, "actualizado": fila["actualizado"],
+            "error": fila["error"] or ""}
+
+
+def obtener_facturas(empresa, forzar: bool = False) -> dict:
+    """Hoja número → enlace, con el mismo refresco que la de cartera."""
+    url = url_csv(empresa["cartera_facturas_url"] or "")
+    if not url:
+        return {"datos": None, "actualizado": None, "error": ""}
+    previo = cache_facturas(empresa["id"])
+    if previo["datos"] and not forzar and not _vencido(previo["actualizado"]):
+        return previo
+    with _candado:
+        previo = cache_facturas(empresa["id"])
+        if previo["datos"] and not forzar and not _vencido(previo["actualizado"]):
+            return previo
+        try:
+            _guardar_facturas(empresa["id"], parsear_facturas(descargar(url)))
+        except Exception as e:                              # noqa: BLE001
+            _guardar_facturas(empresa["id"], previo["datos"], mensaje_error(e))
+        return cache_facturas(empresa["id"])
+
+
+def borrar_cache_facturas(empresa_id: int) -> None:
+    db.ejecutar("DELETE FROM cartera_facturas WHERE empresa_id = ?", (empresa_id,))
+
+
+def claves_factura(valor) -> list[str]:
+    """Formas equivalentes de un número (sin espacios, guiones ni ceros)."""
+    base = sin_tildes(valor)
+    if not base:
+        return []
+    claves = {base}
+    corto = re.sub(r"[^0-9A-Z]", "", base)
+    if corto:
+        claves.add(corto)
+        if corto.isdigit():
+            claves.add(corto.lstrip("0") or "0")
+    return list(claves)
+
+
+def mapa_facturas(pares) -> dict:
+    """Diccionario clave → enlace para buscar rápido cada factura."""
+    mapa = {}
+    for numero, url in pares or []:
+        for clave in claves_factura(numero):
+            mapa.setdefault(clave, url)
+    return mapa
+
+
+def url_factura(mapa: dict, valor) -> str | None:
+    for clave in claves_factura(valor):
+        url = mapa.get(clave)
+        if url:
+            return url
+    return None
+
+
 def refrescar_todas() -> None:
-    """Vuelve a bajar la hoja de cada empresa que tenga enlace.
+    """Vuelve a bajar las hojas de cada empresa que tenga enlace.
 
     La usa la tarea interna cada 10 minutos: así la copia está lista antes
     de que alguien abra Cartera (no hay que esperar la descarga al entrar).
     """
     filas = db.filas("SELECT * FROM empresas "
-                     "WHERE TRIM(COALESCE(cartera_url, '')) <> ''")
+                     "WHERE TRIM(COALESCE(cartera_url, '')) <> '' "
+                     "OR TRIM(COALESCE(cartera_facturas_url, '')) <> ''")
     for empresa in filas:
         try:
-            obtener(empresa, forzar=True)
+            if (empresa["cartera_url"] or "").strip():
+                obtener(empresa, forzar=True)
+        except Exception:                               # noqa: BLE001
+            pass
+        try:
+            if (empresa["cartera_facturas_url"] or "").strip():
+                obtener_facturas(empresa, forzar=True)
         except Exception:                               # noqa: BLE001
             pass
 
@@ -294,6 +408,27 @@ def nombre_vendedor(columnas: list[str]) -> str:
         if "VENDEDOR" in sin_tildes(titulo):
             return titulo
     return ""
+
+
+def indice_factura(empresa, columnas: list[str]) -> int:
+    """Posición de la columna con el número de factura en la cartera."""
+    objetivo = sin_tildes(empresa["cartera_columna_factura"] or "")
+    if objetivo:
+        for i, titulo in enumerate(columnas):
+            if sin_tildes(titulo) == objetivo:
+                return i
+    exactos = ("FACTURA", "N FACTURA", "NO FACTURA", "NUMERO FACTURA",
+               "NUM FACTURA", "DOCUMENTO", "NUMERO", "NO")
+    for i, titulo in enumerate(columnas):
+        if sin_tildes(titulo) in exactos:
+            return i
+    for i, titulo in enumerate(columnas):
+        limpio = sin_tildes(titulo)
+        if "FACTURA" in limpio and not any(x in limpio for x in
+                                          ("VALOR", "TOTAL", "FECHA",
+                                           "SALDO", "ABONO", "MONTO")):
+            return i
+    return -1
 
 
 # ---------- saldo ----------

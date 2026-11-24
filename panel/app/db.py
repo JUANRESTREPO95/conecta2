@@ -208,6 +208,15 @@ CREATE TABLE IF NOT EXISTS cartera (
     actualizado TEXT,
     error TEXT
 );
+
+-- Hoja de facturas: número y enlace (columna A y B)
+-- datos guarda {"pares": [[numero, url], ...]}
+CREATE TABLE IF NOT EXISTS cartera_facturas (
+    empresa_id INTEGER PRIMARY KEY REFERENCES empresas(id),
+    datos TEXT,
+    actualizado TEXT,
+    error TEXT
+);
 """
 
 
@@ -279,6 +288,8 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE empresas ADD COLUMN cartera_activa INTEGER DEFAULT 1",
         "ALTER TABLE empresas ADD COLUMN cartera_usar_saldo INTEGER DEFAULT 1",
         "ALTER TABLE empresas ADD COLUMN catalogo_modo TEXT DEFAULT 'internet'",
+        "ALTER TABLE empresas ADD COLUMN cartera_facturas_url TEXT",
+        "ALTER TABLE empresas ADD COLUMN cartera_columna_factura TEXT",
     ):
         try:
             con.execute(alter)
