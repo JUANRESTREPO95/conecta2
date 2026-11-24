@@ -11,6 +11,61 @@
 {% if request.query_params.get('error') == 'permiso' %}
 <p class="error">No tienes permiso para esa empresa.</p>
 {% endif %}
+{% if request.query_params.get('ok') == 'apk' %}<p class="ok">APK guardada.</p>{% endif %}
+{% if request.query_params.get('ok') == 'apk_on' %}<p class="ok">Descarga habilitada.</p>{% endif %}
+{% if request.query_params.get('ok') == 'apk_off' %}<p class="ok">Descarga deshabilitada.</p>{% endif %}
+{% if request.query_params.get('error') == 'apk' %}
+<p class="error">No se pudo guardar el APK. Revisa que el archivo sea un APK
+  válido y que no pase de 100 MB.</p>
+{% endif %}
+{% if request.query_params.get('error') == 'apk_off' %}
+<p class="error">La descarga del APK no está habilitada en este momento.</p>
+{% endif %}
+
+<div class="caja" style="margin-bottom:1rem">
+  <h2 style="font-family:'Rubik',sans-serif;font-size:1.1rem;margin:0 0 .4rem">
+    APK para los teléfonos</h2>
+  {% if apk %}
+  <p class="sub" style="margin:0">
+    Última subida: {{ apk.subido or '—' }} — {{ apk.tamano_mb }} MB.
+    {% if apk.activo and apk.existe %}<strong>Descarga habilitada.</strong>
+    {% else %}Descarga deshabilitada.{% endif %}
+  </p>
+  {% if apk.activo and apk.existe %}
+  <p style="margin:.7rem 0 0">
+    <a class="boton-enlace" href="/apps/apk/descargar?empresa={{ e.id }}">Descargar APK</a>
+  </p>
+  {% else %}
+  <p class="sub" style="margin:.6rem 0 0">No hay descarga disponible ahora.</p>
+  {% endif %}
+  {% else %}
+  <p class="sub" style="margin:0">Todavía no hay APK subido.</p>
+  {% endif %}
+
+  {% if usuario.rol == 'super' %}
+  <form method="post" action="/apps/apk" enctype="multipart/form-data"
+        style="margin-top:.9rem">
+    <input type="hidden" name="empresa_id" value="{{ e.id }}">
+    <label>Subir APK (reemplaza la que haya)
+      <input type="file" name="archivo"
+             accept=".apk,application/vnd.android.package-archive" required>
+    </label>
+    <button type="submit">Subir APK</button>
+  </form>
+  {% if apk and apk.existe %}
+  <form method="post" action="/apps/apk/estado" class="inline"
+        style="margin-top:.7rem">
+    <input type="hidden" name="empresa_id" value="{{ e.id }}">
+    <input type="hidden" name="activo" value="{{ '0' if apk.activo else '1' }}">
+    <button type="submit" class="btn-neutro">
+      {{ 'Deshabilitar descarga' if apk.activo else 'Habilitar descarga' }}
+    </button>
+  </form>
+  {% endif %}
+  <p class="sub">Solo tú puedes subirla y prender o apagar la descarga.
+    Administradores y super pueden descargarla cuando esté habilitada.</p>
+  {% endif %}
+</div>
 
 {% if token_nuevo %}
 <div class="caja" style="border-color:#16a34a">
