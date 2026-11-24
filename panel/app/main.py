@@ -1454,14 +1454,30 @@ def datos_cartera(usuario, empresa, forzar: bool = False) -> dict:
         filtros = [{"nombre": datos["columnas"][i],
                     "opciones": cartera_hoja.opciones_filtro(visibles, i)}
                    for i in indices_filtro]
+        # enlace a la factura cuando la columna del número está visible
+        mapa_facturas, pos_factura, idx_factura = {}, -1, -1
+        if (empresa["cartera_facturas_url"] or "").strip():
+            idx_factura = cartera_hoja.indice_factura(empresa, datos["columnas"])
+            if idx_factura in indices:
+                pos_factura = indices.index(idx_factura)
+                guardado_f = cartera_hoja.obtener_facturas(empresa, forzar)
+                if guardado_f["datos"]:
+                    mapa_facturas = cartera_hoja.mapa_facturas(
+                        guardado_f["datos"].get("pares"))
         for fila in visibles:
             saldo = (cartera_hoja.a_numero(fila[indice_saldo])
                      if 0 <= indice_saldo < len(fila) else None)
+            enlaces: list[str | None] = [None] * len(indices)
+            if pos_factura >= 0:
+                numero = (fila[idx_factura] if idx_factura < len(fila) else "")
+                enlaces[pos_factura] = cartera_hoja.url_factura(mapa_facturas,
+                                                                numero)
             filas.append({
                 "celdas": [fila[i] if i < len(fila) else "" for i in indices],
                 "filtros": [fila[i] if i < len(fila) else ""
                             for i in indices_filtro],
-                "saldo": saldo})
+                "saldo": saldo,
+                "enlaces": enlaces})
     return {"columnas": columnas, "filas": filas, "filtros": filtros,
             "total_saldo": total_saldo, "hay_saldo": hay_saldo,
             "actualizado": estado["actualizado"], "error": estado["error"],
@@ -1960,12 +1976,15 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        pedidos_activo: str = Form("1"),
                        cartera_activa: str = Form("1"),
                        cartera_usar_saldo: str = Form("1"),
-                       catalogo_modo: str = Form("internet")):
+                       catalogo_modo: str = Form("internet"),
+                       cartera_facturas_url: str = Form(""),
+                       cartera_columna_factura: str = Form("")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
-    actual = db.fila("SELECT logo, cartera_url, catalogo_modo FROM empresas "
-                     "WHERE id = ?", (empresa_id,))
+    actual = db.fila("SELECT logo, cartera_url, catalogo_modo, "
+                     "cartera_facturas_url FROM empresas WHERE id = ?",
+                     (empresa_id,))
     modo_anterior = ((actual["catalogo_modo"] if actual else "internet")
                      or "internet")
     if catalogo_modo not in ("internet", "activos", "todos"):
@@ -1992,6 +2011,19 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
         else:
             cartera_destino = url_previa
             error_cartera = "El enlace de Cartera debe empezar con https://"
+    # hoja de facturas (número y enlace)
+    facturas_previa = ((actual["cartera_facturas_url"] if actual else "")
+                       or "").strip()
+    facturas_destino = (cartera_facturas_url or "").strip()
+    if facturas_destino:
+        normalizado_f = cartera_hoja.url_csv(facturas_destino)
+        if normalizado_f:
+            facturas_destino = normalizado_f
+        else:
+            facturas_destino = facturas_previa
+            if not error_cartera:
+                error_cartera = ("El enlace de facturas debe empezar "
+                                 "con https://")
     columnas_cartera = [c.strip() for c in (cartera_columnas or []) if c.strip()]
     filtros_cartera = [c.strip() for c in (cartera_filtros or []) if c.strip()]
     minimo_saldo = cartera_hoja.a_numero(cartera_saldo_minimo) or 0.0
@@ -2001,6 +2033,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
     pedidos_on = 1 if str(pedidos_activo or "").strip() == "1" else 0
     cartera_on = 1 if str(cartera_activa or "").strip() == "1" else 0
     usar_saldo = 1 if str(cartera_usar_saldo or "").strip() == "1" else 0
+    if facturas_destino != facturas_previa:
+        cartera_hoja.borrar_cache_facturas(empresa_id)
     if cartera_destino != url_previa:
         cartera_hoja.borrar_cache(empresa_id)
         if not columnas_cartera:
@@ -2008,6 +2042,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
             cartera_columna_vendedor = ""
             filtros_cartera = []
             cartera_columna_saldo = ""
+            cartera_columna_factura = ""
     # la barra usa el color principal; ya no se pide un color aparte
     if filtro not in ("todo", "positivo", "personalizado"):
         filtro = "todo"
@@ -2052,7 +2087,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "cartera_filtros = ?, cartera_columna_saldo = ?, "
                 "cartera_saldo_minimo = ?, cartera_mostrar_total = ?, "
                 "pedidos_activo = ?, cartera_activa = ?, "
-                "cartera_usar_saldo = ?, catalogo_modo = ? "
+                "cartera_usar_saldo = ?, catalogo_modo = ?, "
+                "cartera_facturas_url = ?, cartera_columna_factura = ? "
                 "WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_cartera, color_primario, color_letra, logo,
@@ -2067,6 +2103,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                  (cartera_columna_saldo or "").strip() or None,
                  minimo_saldo, mostrar_total,
                  pedidos_on, cartera_on, usar_saldo, catalogo_modo,
+                 facturas_destino or None,
+                 (cartera_columna_factura or "").strip() or None,
                  empresa_id))
     if catalogo_modo != modo_anterior:
         # que la app reciba el cambio en su próxima sincronización y borre

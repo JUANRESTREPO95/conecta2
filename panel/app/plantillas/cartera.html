@@ -68,7 +68,11 @@
     <tbody id="cartera-filas">
     {% for f in filas %}
       <tr data-saldo="{{ f.saldo if f.saldo is not none else '' }}">
-        {% for c in columnas %}<td data-col="{{ c }}">{{ f.celdas[loop.index0] }}</td>{% endfor %}
+        {% for c in columnas %}
+        <td data-col="{{ c }}">
+          {% if f.enlaces and f.enlaces[loop.index0] %}<a href="{{ f.enlaces[loop.index0] }}" target="_blank" rel="noopener noreferrer">{{ f.celdas[loop.index0] }}</a>{% else %}{{ f.celdas[loop.index0] }}{% endif %}
+        </td>
+        {% endfor %}
         {% for v in f.filtros %}<td class="dato-filtro" style="display:none">{{ v }}</td>{% endfor %}
       </tr>
     {% endfor %}
