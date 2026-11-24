@@ -6,12 +6,15 @@ El super usuario se crea en el primer arranque, en /primer-vez.
 import json
 import threading
 import time
+import unicodedata
+import uuid
+import zipfile
 from datetime import datetime
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -1629,9 +1632,18 @@ def apps(request: Request, empresa: int | None = None):
     if usuario["rol"] == "super":
         tokens = {a["id"]: seguridad.descifrar_clave(a["token_visible"] or "")
                   for a in lista}
+    apk = db.fila("SELECT * FROM app_apk WHERE empresa_id = ?", (emp["id"],))
+    apk_datos = None
+    if apk is not None:
+        ruta_apk = config.APK / (apk["archivo"] or "")
+        existe = bool(apk["archivo"]) and ruta_apk.is_file()
+        apk_datos = {"tamano_mb": round((apk["tamano"] or 0) / 1048576, 1),
+                     "subido": apk["subido"],
+                     "activo": bool(apk["activo"]) and existe,
+                     "existe": existe}
     return respuesta(request, "apps.html",
                      {"e": emp, "apps": lista, "token_nuevo": None,
-                      "tokens": tokens})
+                      "tokens": tokens, "apk": apk_datos})
 
 
 @app.post("/apps/crear")
@@ -1708,6 +1720,115 @@ def apps_eliminar(request: Request, app_id: int = Form(...),
     db.ejecutar("DELETE FROM app_tokens WHERE id = ? AND empresa_id = ?",
                 (app_id, emp["id"]))
     return _volver_apps(usuario, emp)
+
+
+def _volver_apk(usuario, empresa, clave: str) -> RedirectResponse:
+    base = "/apps" if usuario["rol"] != "super" else f"/apps?empresa={empresa['id']}"
+    separador = "&" if "?" in base else "?"
+    return RedirectResponse(f"{base}{separador}{clave}", status_code=303)
+
+
+def _nombre_descarga(nombre: str) -> str:
+    plano = unicodedata.normalize("NFKD", nombre or "")
+    limpio = "".join(c for c in plano if c.isascii() and
+                     (c.isalnum() or c in "-_ ")).strip()
+    return f"Conecta2-{limpio or 'empresa'}.apk"
+
+
+@app.post("/apps/apk")
+def apps_apk_subir(request: Request, empresa_id: int = Form(...),
+                   archivo: UploadFile = File(...)):
+    """El super sube o reemplaza el APK de esa empresa (sin versión)."""
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    emp = _empresa_apps(usuario, empresa_id)
+    if emp is None:
+        return RedirectResponse("/inicio", status_code=303)
+    if not archivo or not archivo.filename:
+        return _volver_apk(usuario, emp, "error=apk")
+    limite = 100 * 1024 * 1024          # Cloudflare también corta en 100 MB
+    destino = config.APK / f"empresa-{emp['id']}-{uuid.uuid4().hex[:10]}.apk"
+    total = 0
+    try:
+        with destino.open("wb") as salida:
+            while True:
+                trozo = archivo.file.read(1024 * 1024)
+                if not trozo:
+                    break
+                total += len(trozo)
+                if total > limite:
+                    raise ValueError("APK demasiado grande")
+                salida.write(trozo)
+        if total < 1024 or not zipfile.is_zipfile(destino):
+            raise ValueError("El archivo no parece un APK")
+    except Exception:                                   # noqa: BLE001
+        try:
+            destino.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return _volver_apk(usuario, emp, "error=apk")
+    anterior = db.fila("SELECT archivo, activo FROM app_apk "
+                       "WHERE empresa_id = ?", (emp["id"],))
+    # si ya había una descarga habilitada, la nueva conserva el interruptor;
+    # si es la primera, queda deshabilitada hasta que el super la active
+    activo = (anterior["activo"] if anterior is not None else 0)
+    db.ejecutar(
+        "INSERT INTO app_apk (empresa_id, archivo, tamano, subido, activo) "
+        "VALUES (?, ?, ?, datetime('now','localtime'), ?) "
+        "ON CONFLICT(empresa_id) DO UPDATE SET archivo = excluded.archivo, "
+        "tamano = excluded.tamano, subido = excluded.subido",
+        (emp["id"], destino.name, total, activo))
+    if anterior is not None and anterior["archivo"]:
+        viejo = config.APK / anterior["archivo"]
+        if viejo != destino:
+            try:
+                viejo.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return _volver_apk(usuario, emp, "ok=apk")
+
+
+@app.post("/apps/apk/estado")
+def apps_apk_estado(request: Request, empresa_id: int = Form(...),
+                    activo: str = Form("0")):
+    """Prende o apaga la descarga del APK (solo el super)."""
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    emp = _empresa_apps(usuario, empresa_id)
+    if emp is None:
+        return RedirectResponse("/inicio", status_code=303)
+    fila = db.fila("SELECT archivo FROM app_apk WHERE empresa_id = ?",
+                   (emp["id"],))
+    hay = bool(fila is not None and fila["archivo"] and
+               (config.APK / fila["archivo"]).is_file())
+    estado = 1 if (str(activo or "").strip() == "1" and hay) else 0
+    db.ejecutar("UPDATE app_apk SET activo = ? WHERE empresa_id = ?",
+                (estado, emp["id"]))
+    return _volver_apk(usuario, emp, "ok=apk_on" if estado else "ok=apk_off")
+
+
+@app.get("/apps/apk/descargar")
+def apps_apk_descargar(request: Request, empresa: int | None = None):
+    """Admin y super descargan el APK habilitado de la empresa."""
+    usuario = requiere_rol(request, ("admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    emp = _empresa_apps(usuario, empresa if usuario["rol"] == "super" else None)
+    if emp is None:
+        return RedirectResponse("/inicio", status_code=303)
+    fila = db.fila("SELECT * FROM app_apk WHERE empresa_id = ? AND activo = 1",
+                   (emp["id"],))
+    if fila is None or not fila["archivo"]:
+        return _volver_apk(usuario, emp, "error=apk_off")
+    ruta = config.APK / fila["archivo"]
+    if not ruta.is_file():
+        db.ejecutar("UPDATE app_apk SET activo = 0 WHERE empresa_id = ?",
+                    (emp["id"],))
+        return _volver_apk(usuario, emp, "error=apk_off")
+    return FileResponse(ruta, media_type="application/vnd.android.package-archive",
+                        filename=_nombre_descarga(emp["nombre"]))
 
 
 # ---------- vendedores ----------

@@ -179,6 +179,15 @@ CREATE TABLE IF NOT EXISTS app_tokens (
     ultimo_uso TEXT
 );
 
+-- APK que el super sube para que admin y super la descarguen (una por empresa)
+CREATE TABLE IF NOT EXISTS app_apk (
+    empresa_id INTEGER PRIMARY KEY REFERENCES empresas(id),
+    archivo TEXT,
+    tamano INTEGER DEFAULT 0,
+    subido TEXT,
+    activo INTEGER NOT NULL DEFAULT 0
+);
+
 -- Vendedores de A2 (los sube el agente; el panel los importa de aquí)
 CREATE TABLE IF NOT EXISTS vendedores_a2 (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
