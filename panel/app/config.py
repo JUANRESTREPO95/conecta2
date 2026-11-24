@@ -8,6 +8,8 @@ ESTATICOS = CARPETA / "app" / "estaticos"
 PLANTILLAS = CARPETA / "app" / "plantillas"
 LOGOS = CARPETA / "datos" / "logos"
 LOGOS.mkdir(exist_ok=True)
+APK = CARPETA / "datos" / "apk"
+APK.mkdir(exist_ok=True)
 
 # Sesiones: duración en horas
 SESION_HORAS = 12
