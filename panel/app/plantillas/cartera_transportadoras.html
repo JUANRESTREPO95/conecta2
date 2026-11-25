@@ -50,7 +50,14 @@
   <label>Desde <input type="date" name="desde" value="{{ filtros.desde }}"></label>
   <label>Hasta <input type="date" name="hasta" value="{{ filtros.hasta }}"></label>
   {% if puede_editar %}
-  <label>Vendedor <input name="vendedor" value="{{ filtros.vendedor }}" placeholder="Nombre o código"></label>
+  <label>Vendedor
+    <select name="vendedor">
+      <option value="">Todos</option>
+      {% for v in vendedores %}
+      <option value="{{ v }}" {% if filtros.vendedor == v %}selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </label>
   {% endif %}
   <label>Buscar <input name="q" value="{{ filtros.q }}" placeholder="Factura o cliente"></label>
   <button type="submit">Filtrar</button>

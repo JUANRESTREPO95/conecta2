@@ -1586,6 +1586,7 @@ def _cartera_transportadoras(request: Request, usuario, empresa):
         "filas": pagina_filas, "total": total,
         "pagina": pagina, "paginas": paginas, "filtros": filtros,
         "transportadoras": transporte.distintos(datos, indices, "transportadora"),
+        "vendedores": transporte.distintos(datos, indices, "vendedor"),
         "actualizado": estado_bd["actualizado"],
         "error": estado_bd["error"] or "",
         "pendientes": pendientes,

@@ -304,8 +304,8 @@ def filas_lista(usuario, datos: dict | None, indices: dict, estado: str,
                 continue
             if estado == "registrado" and not llena:
                 continue
-            if vendedor_filtro and vendedor_filtro not in _normal(
-                    valores.get("vendedor") or ""):
+            if vendedor_filtro and _normal(
+                    valores.get("vendedor") or "") != vendedor_filtro:
                 continue
         if q and q not in _normal(factura) and q not in _normal(
                 valores.get("cliente") or ""):
