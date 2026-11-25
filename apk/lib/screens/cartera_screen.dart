@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../state.dart';
 import 'tabs/ajustes_tab.dart';
+import 'tabs/transportadoras_tab.dart';
 
 /// Cartera de la empresa: la misma información que el panel.
 /// Muestra total, búsqueda, filtros y los registros del vendedor.
@@ -29,7 +31,7 @@ class _CarteraScreenState extends State<CarteraScreen>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 2, vsync: this);
+    _tab = TabController(length: 3, vsync: this);
     Future.microtask(_cargar);
   }
 
@@ -210,6 +212,7 @@ class _CarteraScreenState extends State<CarteraScreen>
                 indicatorColor: letra,
                 tabs: const [
                   Tab(text: 'Cartera'),
+                  Tab(text: 'Transportadoras'),
                   Tab(text: 'Ajustes'),
                 ],
               ),
@@ -220,6 +223,7 @@ class _CarteraScreenState extends State<CarteraScreen>
                 controller: _tab,
                 children: [
                   _cartera(),
+                  const TransportadorasTab(),
                   const AjustesTab(),
                 ],
               ),
@@ -264,6 +268,7 @@ class _CarteraScreenState extends State<CarteraScreen>
         'celdas': _lista(fila['celdas']),
         'valores': _lista(fila['filtros']),
         'saldo': fila['saldo'],
+        'enlaces': (fila['enlaces'] as List?) ?? const [],
       });
     }
     final q = _normal(_buscar.text);
@@ -528,6 +533,7 @@ class _CarteraScreenState extends State<CarteraScreen>
 
   Widget _ficha(List<String> columnas, Map<String, dynamic> fila) {
     final celdas = _lista(fila['celdas']);
+    final enlaces = (fila['enlaces'] as List?) ?? const [];
     return Card(
       // blanco fijo: sin el tinte del tema (que salía rosado)
       color: Colors.white,
@@ -561,9 +567,9 @@ class _CarteraScreenState extends State<CarteraScreen>
                       ),
                     ),
                     Expanded(
-                      child: Text(
+                      child: _valorCelda(
                         i < celdas.length ? celdas[i] : '',
-                        style: const TextStyle(fontSize: 13),
+                        i < enlaces.length ? enlaces[i] : null,
                       ),
                     ),
                   ],
@@ -573,6 +579,48 @@ class _CarteraScreenState extends State<CarteraScreen>
         ),
       ),
     );
+  }
+
+  /// Celda normal o, si tiene enlace, un texto subrayado para abrir la factura.
+  Widget _valorCelda(String valor, dynamic enlace) {
+    if (enlace is String && enlace.isNotEmpty) {
+      return InkWell(
+        onTap: () => _abrirEnlace(enlace),
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 1),
+          child: Text(
+            valor,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: appState.colorCartera,
+              decoration: TextDecoration.underline,
+            ),
+          ),
+        ),
+      );
+    }
+    return Text(valor, style: const TextStyle(fontSize: 13));
+  }
+
+  Future<void> _abrirEnlace(String enlace) async {
+    final uri = Uri.tryParse(enlace);
+    if (uri == null) return;
+    try {
+      final abierto = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!abierto && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo abrir la factura.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo abrir la factura.')),
+        );
+      }
+    }
   }
 
   /// Número con separador de miles (1.234.567), como en el panel.

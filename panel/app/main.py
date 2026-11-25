@@ -677,6 +677,39 @@ def app_cartera(request: Request):
             "vendedor": usuario["codigo"]}
 
 
+@app.get("/api/app/transportadoras")
+def app_transportadoras(request: Request):
+    """Transportadoras registradas: el vendedor solo las suyas."""
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    if not bandera(empresa["cartera_activa"]):
+        return _json_error("sección desactivada", 403)
+    usuario = sesion_app(request, empresa["id"])
+    if usuario is None:
+        return _json_error("sesión vencida", 401)
+    estado = transporte.leer(empresa)
+    datos = estado["datos"]
+    indices = transporte.mapa_indices(empresa, (datos or {}).get("headers") or [])
+    configurada = bool((empresa["bd_url"] or "").strip()) and all(
+        indices.get(campo, -1) >= 0
+        for campo in transporte.ESCRIBE + ("factura",))
+    campos = ("factura", "fecha", "cliente", "ciudad", "telefono",
+              "vendedor", "cajas", "flete", "transportadora", "guia")
+    filas = []
+    if configurada:
+        for fila in transporte.filas_lista(usuario, datos, indices,
+                                           "registrado", {}):
+            filas.append({campo: fila.get(campo, "") for campo in campos})
+    return {"ok": True, "configurada": bool(configurada),
+            "actualizado": estado["actualizado"],
+            "error": estado["error"] or "",
+            "filas": filas, "total": len(filas)}
+
+
 @app.post("/api/app/pedido")
 async def app_pedido(request: Request):
     """Crea un pedido enviado desde la app (con UUID para no duplicar)."""
