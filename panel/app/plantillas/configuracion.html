@@ -191,6 +191,45 @@
       <p class="sub" style="margin-top:-6px">Si el número de esa columna está en
         la hoja de facturas, en Cartera se vuelve un enlace para abrirla.</p>
 
+      <p class="sub" style="margin:1.2rem 0 .2rem">Hoja BD de transportadoras</p>
+      <label>Enlace de la hoja BD (solo lectura)
+        <input name="bd_url" id="bd-url" value="{{ e.bd_url or '' }}"
+               placeholder="https://docs.google.com/spreadsheets/d/…"
+               autocomplete="off">
+      </label>
+      <button type="button" class="btn-neutro" id="bd-traer">Traer columnas de la BD</button>
+      <span class="sub" id="bd-aviso"></span>
+      <label>Los datos empiezan en la fila
+        <input name="bd_fila_inicio" type="number" min="2" step="1"
+               value="{{ e.bd_fila_inicio or 2 }}">
+      </label>
+      <p class="sub" style="margin-top:-6px">La fila 1 son los títulos; todo lo
+        que esté por encima de la fila inicial se ignora.</p>
+      {% for campo, etiqueta in [('factura','Factura'), ('fecha','Fecha'),
+          ('cliente','Cliente'), ('direccion','Dirección'), ('ciudad','Ciudad'),
+          ('telefono','Teléfono'), ('vendedor','Vendedor'), ('cajas','Cajas'),
+          ('flete','Flete'), ('transportadora','Transportadora'), ('guia','Guía')] %}
+      <label>{{ etiqueta }} (columna de la BD)
+        <select name="bd_col_{{ campo }}" data-bd-campo="{{ campo }}">
+          <option value="">—</option>
+          {% for c in columnas_bd %}
+          <option value="{{ c }}" {% if mapa_bd.get(campo) == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endfor %}
+      <label>URL del script de escritura (Apps Script)
+        <input name="bd_script_url" value="{{ e.bd_script_url or '' }}"
+               placeholder="https://script.google.com/macros/s/…/exec"
+               autocomplete="off">
+      </label>
+      <label>Nombre de la pestaña de la BD
+        <input name="bd_hoja" value="{{ e.bd_hoja or 'BD' }}">
+      </label>
+      <p class="sub">La escritura usa el token del agente de esta empresa; no
+        hay token aparte. Si el token del agente no está disponible, renuévalo
+        en Empresas.</p>
+
       <p class="sub" style="margin:.9rem 0 .2rem">Columnas que se muestran en Cartera</p>
       <p class="sub" style="margin:0 0 .25rem">Marca las que quieras y usa ↑ ↓ para
         ponerlas en el orden en que deben salir.</p>
@@ -522,6 +561,48 @@ mostrarClienteDefecto();
     hCodigo.value = '';
     clearTimeout(temporizador);
     temporizador = setTimeout(buscar, 200);
+  });
+})();
+</script>
+<script>
+(function () {
+  var boton = document.getElementById('bd-traer');
+  if (!boton) return;
+  var entrada = document.getElementById('bd-url');
+  var aviso = document.getElementById('bd-aviso');
+  boton.addEventListener('click', function () {
+    var enlace = (entrada.value || '').trim();
+    if (!enlace) {
+      aviso.textContent = 'Escribe el enlace de la hoja BD primero.';
+      return;
+    }
+    aviso.textContent = 'Trayendo columnas…';
+    var datos = new FormData();
+    datos.append('url', enlace);
+    fetch('/configuracion/cartera/bd/columnas', { method: 'POST', body: datos })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) {
+          aviso.textContent = d.mensaje || 'No se pudo leer la hoja.';
+          return;
+        }
+        var columnas = d.columnas || [];
+        var sugerencias = d.sugerencias || {};
+        document.querySelectorAll('select[data-bd-campo]').forEach(function (sel) {
+          var campo = sel.getAttribute('data-bd-campo');
+          sel.innerHTML = '<option value="">—</option>';
+          columnas.forEach(function (c) {
+            var o = document.createElement('option');
+            o.value = c;
+            o.textContent = c;
+            sel.appendChild(o);
+          });
+          if (sugerencias[campo]) sel.value = sugerencias[campo];
+        });
+        aviso.textContent = columnas.length +
+          ' columnas. Revisa el mapeo y guarda.';
+      })
+      .catch(function () { aviso.textContent = 'No se pudo leer la hoja.'; });
   });
 })();
 </script>

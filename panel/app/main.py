@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import a2, cartera_hoja, config, db, hoja, seguridad
+from app import a2, cartera_hoja, config, db, hoja, seguridad, transporte
 
 db.esquema()  # garantiza el esquema también cuando uvicorn recarga en modo dev
 
@@ -31,6 +31,10 @@ def _refresco_cartera():
     while True:
         try:
             cartera_hoja.refrescar_todas()
+        except Exception:                               # noqa: BLE001
+            pass
+        try:
+            transporte.refrescar_todas()
         except Exception:                               # noqa: BLE001
             pass
         time.sleep(cartera_hoja.INTERVALO_REFRESCO)
@@ -1509,17 +1513,215 @@ def cartera(request: Request):
     empresa = empresa_del(usuario, empresa_id)
     if empresa is None:
         return respuesta(request, "cartera.html", {"sin_empresa": True})
+    if (request.query_params.get("tab") or "") == "transportadoras":
+        return _cartera_transportadoras(request, usuario, empresa)
     puede_actualizar = usuario["rol"] in ("super", "admin")
     forzar = puede_actualizar and request.query_params.get("actualizar") == "1"
     resultado = datos_cartera(usuario, empresa, forzar)
     return respuesta(request, "cartera.html", {
-        "empresa": empresa, "sin_empresa": False, **resultado,
+        "empresa": empresa, "sin_empresa": False, "tab": "cartera", **resultado,
         "mostrar_total": bandera(empresa["cartera_mostrar_total"]),
         "hay_enlace": bool((empresa["cartera_url"] or "").strip()),
         "hay_vendedor_col": bool(resultado["columnas_todas"]) and
         cartera_hoja.indice_vendedor(empresa, resultado["columnas_todas"]) >= 0,
         "puede_actualizar": puede_actualizar,
     })
+
+
+def _volver_transportadoras(usuario, empresa, estado: str, extra: str = "") -> RedirectResponse:
+    base = f"/cartera?tab=transportadoras&estado={estado}"
+    if usuario["rol"] == "super":
+        base += f"&empresa={empresa['id']}"
+    if extra:
+        base += "&" + extra
+    return RedirectResponse(base, status_code=303)
+
+
+def _cartera_transportadoras(request: Request, usuario, empresa):
+    """Pestaña Transportadoras dentro de Cartera (pendiente/registrado)."""
+    if not (empresa["cartera_url"] or "").strip():
+        # Transportadoras depende de que Cartera esté configurada primero
+        return RedirectResponse("/cartera", status_code=303)
+    puede_editar = usuario["rol"] in ("admin", "super")
+    forzar = puede_editar and request.query_params.get("actualizar") == "1"
+    estado_bd = transporte.leer(empresa, forzar)
+    datos = estado_bd["datos"]
+    indices = transporte.mapa_indices(empresa, (datos or {}).get("headers") or [])
+    configurada = bool((empresa["bd_url"] or "").strip()) and all(
+        indices.get(campo, -1) >= 0
+        for campo in transporte.ESCRIBE + ("factura",))
+    if usuario["rol"] == "vendedor":
+        estado = "registrado"
+    else:
+        estado = request.query_params.get("estado") or "pendiente"
+        if estado not in ("pendiente", "registrado"):
+            estado = "pendiente"
+    filtros = {
+        "q": (request.query_params.get("q") or "").strip(),
+        "vendedor": (request.query_params.get("vendedor") or "").strip(),
+        "desde": (request.query_params.get("desde") or "").strip(),
+        "hasta": (request.query_params.get("hasta") or "").strip(),
+    }
+    filas = (transporte.filas_lista(usuario, datos, indices, estado, filtros)
+             if configurada else [])
+    total = len(filas)
+    try:
+        pagina = max(1, int(request.query_params.get("pagina") or 1))
+    except ValueError:
+        pagina = 1
+    por_pagina = 50
+    paginas = max(1, (total + por_pagina - 1) // por_pagina)
+    pagina = min(pagina, paginas)
+    pagina_filas = filas[(pagina - 1) * por_pagina:pagina * por_pagina]
+    pendientes = None
+    if puede_editar and configurada:
+        pendientes = len(transporte.filas_lista(usuario, datos, indices,
+                                                "pendiente", {}))
+    return respuesta(request, "cartera_transportadoras.html", {
+        "empresa": empresa, "sin_empresa": False,
+        "tab": "transportadoras", "estado": estado,
+        "puede_editar": puede_editar,
+        "configurada": configurada,
+        "hay_bd": bool((empresa["bd_url"] or "").strip()),
+        "filas": pagina_filas, "total": total,
+        "pagina": pagina, "paginas": paginas, "filtros": filtros,
+        "transportadoras": transporte.distintos(datos, indices, "transportadora"),
+        "vendedores": transporte.distintos(datos, indices, "vendedor"),
+        "actualizado": estado_bd["actualizado"],
+        "error": estado_bd["error"] or "",
+        "pendientes": pendientes,
+    })
+
+
+@app.get("/cartera/transportadoras/editar")
+def transportadora_editar(request: Request, factura: str = ""):
+    usuario = requiere_rol(request, ("admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/cartera?tab=transportadoras", status_code=303)
+    pedir = request.query_params.get("empresa")
+    empresa_id = None
+    if pedir:
+        try:
+            empresa_id = int(pedir)
+        except ValueError:
+            empresa_id = None
+    if empresa_id and usuario["rol"] == "super":
+        fija_empresa_activa(usuario, empresa_id)
+    empresa = empresa_del(usuario, empresa_id)
+    if empresa is None:
+        return RedirectResponse("/cartera", status_code=303)
+    estado_bd = transporte.leer(empresa)
+    datos = estado_bd["datos"]
+    indices = transporte.mapa_indices(empresa, (datos or {}).get("headers") or [])
+    fila = transporte.buscar_fila(datos, indices, factura)
+    if fila is None:
+        return _volver_transportadoras(usuario, empresa, "pendiente",
+                                       "error=no_factura")
+    llena = transporte.completa(fila, indices)
+    volver = ("/cartera?tab=transportadoras&estado="
+              + ("registrado" if llena else "pendiente"))
+    if usuario["rol"] == "super":
+        volver += f"&empresa={empresa['id']}"
+    return respuesta(request, "transportadora_form.html", {
+        "empresa": empresa, "fila": fila, "factura": fila["factura"],
+        "registrado": llena, "volver": volver,
+        "transportadoras": transporte.distintos(datos, indices,
+                                                "transportadora"),
+        "error": request.query_params.get("error") or "",
+    })
+
+
+def _transportadora_valores(cajas: str, flete: str, transportadora: str,
+                            guia: str, completar: bool):
+    """Valida el formulario. Devuelve (valores, error)."""
+    cajas_texto = str(cajas or "").strip()
+    flete_texto = str(flete or "").strip()
+    transportadora = str(transportadora or "").strip()
+    guia = str(guia or "").strip()
+    if not cajas_texto and completar:
+        cajas_texto = "0"
+    if not flete_texto and completar:
+        flete_texto = "0"
+    if not transportadora and completar:
+        transportadora = "-"
+    if not guia and completar:
+        guia = "-"
+    try:
+        cajas_num = int(cajas_texto)
+    except ValueError:
+        return None, "Cajas debe ser un número entero."
+    if cajas_num < 0:
+        return None, "Cajas no puede ser negativo."
+    flete_num = cartera_hoja.a_numero(flete_texto)
+    if flete_num is None:
+        return None, "El flete debe ser un número."
+    if flete_num < 0:
+        return None, "El flete no puede ser negativo."
+    if not transportadora:
+        return None, "Escribe la transportadora."
+    if not guia:
+        return None, "Escribe la guía o usa 'Sin envío'."
+    return {"cajas": cajas_num, "flete": flete_num,
+            "transportadora": transportadora, "guia": guia}, ""
+
+
+@app.post("/cartera/transportadoras/guardar")
+def transportadora_guardar(request: Request, factura: str = Form(...),
+                           cajas: str = Form(""), flete: str = Form(""),
+                           transportadora: str = Form(""),
+                           guia: str = Form(""),
+                           accion: str = Form("guardar")):
+    usuario = requiere_rol(request, ("admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/cartera?tab=transportadoras", status_code=303)
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return RedirectResponse("/cartera", status_code=303)
+    estado_bd = transporte.leer(empresa)
+    datos = estado_bd["datos"]
+    indices = transporte.mapa_indices(empresa, (datos or {}).get("headers") or [])
+    fila = transporte.buscar_fila(datos, indices, factura)
+    if fila is None:
+        return _volver_transportadoras(usuario, empresa, "pendiente",
+                                       "error=no_factura")
+    completar = accion == "sin_envio"
+    valores, error = _transportadora_valores(cajas, flete, transportadora,
+                                             guia, completar)
+    llena = transporte.completa(fila, indices)
+    if error or valores is None:
+        error = error or "No se pudieron validar los datos."
+        volver = ("/cartera?tab=transportadoras&estado="
+                  + ("registrado" if llena else "pendiente"))
+        if usuario["rol"] == "super":
+            volver += f"&empresa={empresa['id']}"
+        return respuesta(request, "transportadora_form.html", {
+            "empresa": empresa, "fila": {**fila, "cajas": cajas,
+                                         "flete": flete,
+                                         "transportadora": transportadora,
+                                         "guia": guia},
+            "factura": fila["factura"], "registrado": llena,
+            "volver": volver,
+            "transportadoras": transporte.distintos(datos, indices,
+                                                    "transportadora"),
+            "error": error,
+        })
+    ok, mensaje = transporte.escribir(empresa, factura, valores, indices)
+    if not ok:
+        volver = ("/cartera?tab=transportadoras&estado="
+                  + ("registrado" if llena else "pendiente"))
+        if usuario["rol"] == "super":
+            volver += f"&empresa={empresa['id']}"
+        return respuesta(request, "transportadora_form.html", {
+            "empresa": empresa, "fila": {**fila, **valores},
+            "factura": fila["factura"], "registrado": llena,
+            "volver": volver,
+            "transportadoras": transporte.distintos(datos, indices,
+                                                    "transportadora"),
+            "error": mensaje,
+        })
+    transporte.borrar_cache(empresa["id"])
+    return _volver_transportadoras(usuario, empresa, "registrado",
+                                   "ok=guardado")
 
 
 # ---------- empresas (solo super) ----------
@@ -2020,6 +2222,7 @@ def configuracion(request: Request):
     # columnas de la hoja de Cartera: las últimas que se descargaron, para
     # poder elegirlas sin volver a consultar Google al abrir esta página
     columnas_hoja, columnas_guardadas, filtros_guardados = [], [], []
+    columnas_bd, mapa_bd = [], {}
     if empresa is not None:
         columnas_guardadas = cartera_hoja.columnas_guardadas(empresa)
         filtros_guardados = cartera_hoja.filtros_guardados(empresa)
@@ -2031,12 +2234,27 @@ def configuracion(request: Request):
         if columnas_hoja and columnas_guardadas:
             orden = [c for c in columnas_guardadas if c in columnas_hoja]
             columnas_hoja = orden + [c for c in columnas_hoja if c not in orden]
+        guardado_bd = transporte.cache(empresa["id"])
+        if guardado_bd["datos"]:
+            columnas_bd = guardado_bd["datos"].get("headers") or []
+        try:
+            mapa_bd = json.loads(empresa["bd_columnas"] or "{}")
+        except (TypeError, ValueError):
+            mapa_bd = {}
+        if not isinstance(mapa_bd, dict):
+            mapa_bd = {}
+        # aunque la hoja todavía no se haya descargado, muestra el mapeo
+        # guardado para que no parezca vacío
+        for nombre in mapa_bd.values():
+            if nombre and nombre not in columnas_bd:
+                columnas_bd.append(str(nombre))
     return respuesta(request, "configuracion.html",
                      {"e": empresa, **datos_empresas(),
                       "volver": "/configuracion",
                       "columnas_hoja": columnas_hoja,
                       "columnas_guardadas": columnas_guardadas,
-                      "filtros_guardados": filtros_guardados})
+                      "filtros_guardados": filtros_guardados,
+                      "columnas_bd": columnas_bd, "mapa_bd": mapa_bd})
 
 
 def guardar_logo(empresa_id: int, archivo: UploadFile | None) -> tuple[str, str]:
@@ -2099,13 +2317,29 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        cartera_usar_saldo: str = Form("1"),
                        catalogo_modo: str = Form("internet"),
                        cartera_facturas_url: str = Form(""),
-                       cartera_columna_factura: str = Form("")):
+                       cartera_columna_factura: str = Form(""),
+                       bd_url: str = Form(""),
+                       bd_fila_inicio: int = Form(2),
+                       bd_script_url: str = Form(""),
+                       bd_hoja: str = Form("BD"),
+                       bd_col_factura: str = Form(""),
+                       bd_col_fecha: str = Form(""),
+                       bd_col_cliente: str = Form(""),
+                       bd_col_direccion: str = Form(""),
+                       bd_col_ciudad: str = Form(""),
+                       bd_col_telefono: str = Form(""),
+                       bd_col_vendedor: str = Form(""),
+                       bd_col_cajas: str = Form(""),
+                       bd_col_flete: str = Form(""),
+                       bd_col_transportadora: str = Form(""),
+                       bd_col_guia: str = Form("")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
     actual = db.fila("SELECT logo, cartera_url, catalogo_modo, "
-                     "cartera_facturas_url FROM empresas WHERE id = ?",
-                     (empresa_id,))
+                     "cartera_facturas_url, bd_url, bd_columnas, "
+                     "bd_fila_inicio, bd_script_url, bd_hoja "
+                     "FROM empresas WHERE id = ?", (empresa_id,))
     modo_anterior = ((actual["catalogo_modo"] if actual else "internet")
                      or "internet")
     if catalogo_modo not in ("internet", "activos", "todos"):
@@ -2164,6 +2398,40 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
             filtros_cartera = []
             cartera_columna_saldo = ""
             cartera_columna_factura = ""
+    # hoja BD de transportadoras (enlace, fila inicial y columnas)
+    bd_previa = ((actual["bd_url"] if actual else "") or "").strip()
+    bd_destino = (bd_url or "").strip()
+    if bd_destino:
+        normalizado_bd = cartera_hoja.url_csv(bd_destino)
+        if normalizado_bd:
+            bd_destino = normalizado_bd
+        else:
+            bd_destino = bd_previa
+            if not error_cartera:
+                error_cartera = ("El enlace de la hoja BD debe empezar "
+                                 "con https://")
+    bd_script = (bd_script_url or "").strip()
+    if bd_script and not bd_script.lower().startswith(("http://", "https://")):
+        bd_script = ((actual["bd_script_url"] if actual else "") or "").strip()
+        if not error_cartera:
+            error_cartera = ("La URL del script de la hoja BD debe empezar "
+                             "con https://")
+    bd_inicio = max(2, int(bd_fila_inicio or 2))
+    mapa_bd = {campo: str(valor).strip() for campo, valor in {
+        "factura": bd_col_factura, "fecha": bd_col_fecha,
+        "cliente": bd_col_cliente, "direccion": bd_col_direccion,
+        "ciudad": bd_col_ciudad, "telefono": bd_col_telefono,
+        "vendedor": bd_col_vendedor, "cajas": bd_col_cajas,
+        "flete": bd_col_flete, "transportadora": bd_col_transportadora,
+        "guia": bd_col_guia,
+    }.items() if str(valor or "").strip()}
+    mapa_bd_json = json.dumps(mapa_bd, ensure_ascii=False)
+    previo_bd_json = ((actual["bd_columnas"] if actual else "") or "")
+    previo_bd_inicio = int((actual["bd_fila_inicio"] if actual else 2) or 2)
+    if (bd_destino != bd_previa or bd_inicio != previo_bd_inicio
+            or mapa_bd_json != previo_bd_json):
+        transporte.borrar_cache(empresa_id)
+    bd_hoja = (bd_hoja or "BD").strip() or "BD"
     # la barra usa el color principal; ya no se pide un color aparte
     if filtro not in ("todo", "positivo", "personalizado"):
         filtro = "todo"
@@ -2209,7 +2477,9 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                 "cartera_saldo_minimo = ?, cartera_mostrar_total = ?, "
                 "pedidos_activo = ?, cartera_activa = ?, "
                 "cartera_usar_saldo = ?, catalogo_modo = ?, "
-                "cartera_facturas_url = ?, cartera_columna_factura = ? "
+                "cartera_facturas_url = ?, cartera_columna_factura = ?, "
+                "bd_url = ?, bd_columnas = ?, bd_fila_inicio = ?, "
+                "bd_script_url = ?, bd_hoja = ? "
                 "WHERE id = ?",
                 (nombre.strip() or "-", deposito, 1 if filtro != "todo" else 0,
                  color_primario, color_cartera, color_primario, color_letra, logo,
@@ -2226,6 +2496,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                  pedidos_on, cartera_on, usar_saldo, catalogo_modo,
                  facturas_destino or None,
                  (cartera_columna_factura or "").strip() or None,
+                 bd_destino or None, mapa_bd_json, bd_inicio,
+                 bd_script or None, bd_hoja,
                  empresa_id))
     if catalogo_modo != modo_anterior:
         # que la app reciba el cambio en su próxima sincronización y borre
@@ -2260,6 +2532,23 @@ def configuracion_cartera_columnas(request: Request, url: str = Form("")):
     return {"ok": True, "columnas": datos["columnas"],
             "vendedor": cartera_hoja.nombre_vendedor(datos["columnas"]),
             "filas": len(datos["filas"])}
+
+
+@app.post("/configuracion/cartera/bd/columnas")
+def configuracion_bd_columnas(request: Request, url: str = Form("")):
+    """Lee los títulos de la hoja BD para mapear sus columnas."""
+    usuario = requiere_rol(request, ("super",))
+    if usuario is None:
+        return {"ok": False, "mensaje": "No se pudo cambiar esto."}
+    destino = cartera_hoja.url_csv(url)
+    if not destino:
+        return {"ok": False, "mensaje": "El enlace debe empezar con https://"}
+    try:
+        datos = transporte.parsear(cartera_hoja.descargar(destino), 2)
+    except Exception as e:                                  # noqa: BLE001
+        return {"ok": False, "mensaje": cartera_hoja.mensaje_error(e)}
+    return {"ok": True, "columnas": datos["headers"],
+            "sugerencias": transporte.sugerencias(datos["headers"])}
 
 
 # ---------- catálogo ----------
