@@ -1,13 +1,9 @@
 {% extends "base.html" %}
 {% block clase_main %}pantalla-ancha{% endblock %}
 {% block contenido %}
-<h1>Cartera — {{ empresa.nombre }}</h1>
+<h1>Transportadora — {{ empresa.nombre }}</h1>
 {% set extra_emp = ('&empresa=' ~ empresa.id) if (usuario.rol == 'super' and empresa) else '' %}
 {% set cola = ('tab=transportadoras&estado=' ~ estado ~ '&desde=' ~ (filtros.desde|urlencode) ~ '&hasta=' ~ (filtros.hasta|urlencode) ~ '&vendedor=' ~ (filtros.vendedor|urlencode) ~ '&q=' ~ (filtros.q|urlencode) ~ extra_emp) %}
-<div class="pestanas-cartera">
-  <a href="/cartera?tab=cartera{{ extra_emp }}">Cartera</a>
-  <a class="activa" href="/cartera?tab=transportadoras{{ extra_emp }}">Transportadoras</a>
-</div>
 
 {% if not hay_bd %}
 <div class="caja">

@@ -356,14 +356,6 @@ main.pantalla-ancha { max-width: 1900px; }
 }
 
 /* ---- pestañas de Cartera / Transportadoras ---- */
-.pestanas-cartera { display: flex; gap: .4rem; margin: .8rem 0 1rem;
-  border-bottom: 2px solid var(--borde); flex-wrap: wrap; }
-.pestanas-cartera a { padding: .55rem 1rem; border-radius: 10px 10px 0 0;
-  text-decoration: none; font-weight: 700; color: var(--texto-suave);
-  border: 2px solid transparent; border-bottom: 0; }
-.pestanas-cartera a:hover { background: var(--tinte); color: var(--primario); }
-.pestanas-cartera a.activa { background: #fff; color: var(--primario);
-  border-color: var(--borde); margin-bottom: -2px; }
 .subpestanas { display: flex; gap: .4rem; margin: .2rem 0 .9rem; }
 .subpestanas a { padding: .35rem .9rem; border-radius: 999px;
   text-decoration: none; font-weight: 700; color: var(--texto-suave);

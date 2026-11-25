@@ -128,7 +128,7 @@ Cartera → Configuración → columna Cartera → **Hoja BD de transportadoras*
 6. Nombre de la pestaña (por defecto `BD`).
 7. Guardar.
 
-En el panel, **Cartera → Transportadoras**:
+En el panel, en el **menú de Cartera → Transportadora**:
 - Admin/super: Pendiente y Registrado, con Editar y “Sin envío / Retiro en bodega”.
 - Vendedor: solo sus filas registradas, en lectura.
 
