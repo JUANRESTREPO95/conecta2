@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Transportadora — factura {{ factura }}</h1>
+<p><a href="{{ volver }}">« Volver a Transportadoras</a></p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if registrado %}
+<p class="sub">Esta factura ya está registrada. Puedes corregir cajas, flete,
+  transportadora o guía.</p>
+{% endif %}
+<div class="caja caja-ancha">
+  <div class="transp-datos">
+    <p><strong>Factura:</strong> {{ fila.factura }}</p>
+    <p><strong>Fecha:</strong> {{ fila.fecha or '—' }}</p>
+    <p><strong>Cliente:</strong> {{ fila.cliente or '—' }}</p>
+    <p><strong>Dirección:</strong> {{ fila.direccion or '—' }}</p>
+    <p><strong>Ciudad:</strong> {{ fila.ciudad or '—' }}</p>
+    <p><strong>Teléfono:</strong> {{ fila.telefono or '—' }}</p>
+    <p><strong>Vendedor:</strong> {{ fila.vendedor or '—' }}</p>
+  </div>
+  <form method="post" action="/cartera/transportadoras/guardar" id="form-transp">
+    <input type="hidden" name="factura" value="{{ factura }}">
+    <input type="hidden" name="accion" id="accion" value="guardar">
+    <label>Cajas (cantidad)
+      <input name="cajas" type="number" min="0" step="1"
+             value="{{ fila.cajas or '' }}" required>
+    </label>
+    <label>Flete (valor del envío)
+      <input name="flete" type="text" inputmode="decimal"
+             value="{{ fila.flete or '' }}" placeholder="Ej. 15000" required>
+    </label>
+    <label>Transportadora
+      <input name="transportadora" list="lista-transportadoras"
+             value="{{ fila.transportadora or '' }}" required>
+    </label>
+    <datalist id="lista-transportadoras">
+      {% for t in transportadoras %}<option value="{{ t }}"></option>{% endfor %}
+      <option value="-"></option>
+    </datalist>
+    <label>Guía
+      <input name="guia" value="{{ fila.guia or '' }}" required>
+    </label>
+    <div class="acciones">
+      <button type="submit">Guardar</button>
+      <button type="button" class="btn-neutro" id="sin-envio">
+        Sin envío / Retiro en bodega</button>
+    </div>
+  </form>
+</div>
+
+<div class="modal-fondo" id="modal-sin-envio" hidden>
+  <div class="modal-caja" role="dialog" aria-modal="true">
+    <h2>¿Marcar como sin envío?</h2>
+    <p>Se guardará el flete en <strong>0</strong> y las cajas en
+      <strong>0</strong>. La transportadora y la guía quedarán en
+      <strong>“-”</strong> si están vacías. Se respeta lo que ya hayas
+      escrito.</p>
+    <div class="acciones">
+      <button type="button" class="btn-neutro" id="modal-cancelar">Cancelar</button>
+      <button type="button" id="modal-confirmar">Sí, sin envío</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var boton = document.getElementById('sin-envio');
+  var modal = document.getElementById('modal-sin-envio');
+  var cancelar = document.getElementById('modal-cancelar');
+  var confirmar = document.getElementById('modal-confirmar');
+  var accion = document.getElementById('accion');
+  var form = document.getElementById('form-transp');
+  if (!boton || !modal || !form) return;
+  boton.addEventListener('click', function () { modal.hidden = false; });
+  cancelar.addEventListener('click', function () { modal.hidden = true; });
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal) modal.hidden = true;
+  });
+  confirmar.addEventListener('click', function () {
+    accion.value = 'sin_envio';
+    form.submit();
+  });
+})();
+</script>
+{% endblock %}

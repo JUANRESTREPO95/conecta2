@@ -226,6 +226,15 @@ CREATE TABLE IF NOT EXISTS cartera_facturas (
     actualizado TEXT,
     error TEXT
 );
+
+-- Hoja BD de transportadoras (seguimiento de despacho)
+-- datos guarda {"headers": [...], "filas": [[...], ...]}
+CREATE TABLE IF NOT EXISTS cartera_bd (
+    empresa_id INTEGER PRIMARY KEY REFERENCES empresas(id),
+    datos TEXT,
+    actualizado TEXT,
+    error TEXT
+);
 """
 
 
@@ -299,6 +308,11 @@ def esquema() -> None:  # crea tablas si faltan
         "ALTER TABLE empresas ADD COLUMN catalogo_modo TEXT DEFAULT 'internet'",
         "ALTER TABLE empresas ADD COLUMN cartera_facturas_url TEXT",
         "ALTER TABLE empresas ADD COLUMN cartera_columna_factura TEXT",
+        "ALTER TABLE empresas ADD COLUMN bd_url TEXT",
+        "ALTER TABLE empresas ADD COLUMN bd_columnas TEXT",
+        "ALTER TABLE empresas ADD COLUMN bd_fila_inicio INTEGER DEFAULT 2",
+        "ALTER TABLE empresas ADD COLUMN bd_script_url TEXT",
+        "ALTER TABLE empresas ADD COLUMN bd_hoja TEXT DEFAULT 'BD'",
     ):
         try:
             con.execute(alter)
