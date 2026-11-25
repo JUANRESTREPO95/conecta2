@@ -103,4 +103,16 @@
 {% endif %}
 {% endif %}
 {% endif %}
+<script>
+(function () {
+  var form = document.querySelector('.transp-filtros');
+  if (!form) return;
+  // fecha, vendedor y búsqueda se aplican al cambiar (sin botón)
+  form.addEventListener('change', function (e) {
+    var campo = e.target;
+    if (!campo || !campo.name) return;
+    form.submit();
+  });
+})();
+</script>
 {% endblock %}
