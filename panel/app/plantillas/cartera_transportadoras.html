@@ -60,8 +60,9 @@
   </label>
   {% endif %}
   <label>Buscar <input name="q" value="{{ filtros.q }}" placeholder="Factura o cliente"></label>
-  <button type="submit">Filtrar</button>
+  <button type="button" class="btn-neutro" id="transp-limpiar">Limpiar filtros</button>
 </form>
+<div id="transp-lista">
 {% if not filas %}
 <div class="caja"><p class="sub" style="margin:0">
   {% if estado == 'pendiente' and puede_editar %}No hay facturas pendientes.
@@ -101,18 +102,71 @@
 </p>
 {% endif %}
 {% endif %}
+</div>
 {% endif %}
 {% endif %}
 <script>
 (function () {
   var form = document.querySelector('.transp-filtros');
-  if (!form) return;
-  // fecha, vendedor y búsqueda se aplican al cambiar (sin botón)
+  var lista = document.getElementById('transp-lista');
+  if (!form || !lista) return;
+  var entrada = form.querySelector('input[name="q"]');
+  var limpiar = document.getElementById('transp-limpiar');
+  var temporizador = null;
+  var peticion = 0;
+
+  function actualizar() {
+    var datos = new URLSearchParams(new FormData(form));
+    var url = form.getAttribute('action') + '?' + datos.toString();
+    var numero = ++peticion;
+    fetch(url, { headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        if (numero !== peticion) return;
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var nueva = doc.getElementById('transp-lista');
+        if (!nueva) return;
+        lista.innerHTML = nueva.innerHTML;
+        history.replaceState(null, '', url);
+      })
+      .catch(function () {});
+  }
+
+  // fecha y vendedor: al cambiar
   form.addEventListener('change', function (e) {
     var campo = e.target;
-    if (!campo || !campo.name) return;
-    form.submit();
+    if (!campo || !campo.name || campo.name === 'q') return;
+    clearTimeout(temporizador);
+    actualizar();
   });
+  // factura o cliente: mientras se escribe
+  if (entrada) {
+    entrada.addEventListener('input', function () {
+      clearTimeout(temporizador);
+      temporizador = setTimeout(actualizar, 300);
+    });
+    entrada.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      clearTimeout(temporizador);
+      actualizar();
+    });
+  }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    actualizar();
+  });
+  // limpiar todo menos los campos ocultos (pestaña, estado, empresa)
+  if (limpiar) {
+    limpiar.addEventListener('click', function () {
+      form.querySelectorAll('input[name], select[name]').forEach(function (campo) {
+        if (campo.type === 'hidden') return;
+        campo.value = '';
+      });
+      clearTimeout(temporizador);
+      actualizar();
+    });
+  }
 })();
 </script>
 {% endblock %}
