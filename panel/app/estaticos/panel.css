@@ -355,6 +355,45 @@ main.pantalla-ancha { max-width: 1900px; }
   .cartera-tabla tbody tr:nth-child(even) td { background: transparent !important; }
 }
 
+/* ---- pestañas de Cartera / Transportadoras ---- */
+.pestanas-cartera { display: flex; gap: .4rem; margin: .8rem 0 1rem;
+  border-bottom: 2px solid var(--borde); flex-wrap: wrap; }
+.pestanas-cartera a { padding: .55rem 1rem; border-radius: 10px 10px 0 0;
+  text-decoration: none; font-weight: 700; color: var(--texto-suave);
+  border: 2px solid transparent; border-bottom: 0; }
+.pestanas-cartera a:hover { background: var(--tinte); color: var(--primario); }
+.pestanas-cartera a.activa { background: #fff; color: var(--primario);
+  border-color: var(--borde); margin-bottom: -2px; }
+.subpestanas { display: flex; gap: .4rem; margin: .2rem 0 .9rem; }
+.subpestanas a { padding: .35rem .9rem; border-radius: 999px;
+  text-decoration: none; font-weight: 700; color: var(--texto-suave);
+  background: #fff; border: 2px solid var(--borde); }
+.subpestanas a.activa { background: var(--primario); color: #fff;
+  border-color: var(--primario); }
+.transp-filtros { display: flex; flex-wrap: wrap; gap: .6rem 1rem;
+  align-items: flex-end; margin: .2rem 0 1rem; }
+.transp-filtros label { display: flex; flex-direction: column; gap: 2px;
+  margin: 0; font-size: .72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--texto-suave); }
+.transp-filtros input { padding: .45rem .6rem; border: 2px solid #d7cfc9;
+  border-radius: 9px; font: inherit; font-size: .92rem; }
+.transp-datos { display: grid; grid-template-columns: 1fr 1fr;
+  gap: .2rem 1.5rem; margin-bottom: 1rem; }
+.transp-datos p { margin: .2rem 0; font-size: .92rem; }
+@media (max-width: 640px) { .transp-datos { grid-template-columns: 1fr; } }
+
+/* modal de confirmación (sin envío) */
+.modal-fondo { position: fixed; inset: 0; background: rgba(15, 23, 42, .55);
+  display: flex; align-items: center; justify-content: center; padding: 1rem;
+  z-index: 100; }
+.modal-fondo[hidden] { display: none; }
+.modal-caja { background: #fff; border-radius: 16px; padding: 1.4rem 1.5rem;
+  max-width: 440px; width: 100%; box-shadow: 0 20px 50px rgba(15, 23, 42, .35); }
+.modal-caja h2 { font-family: "Rubik", sans-serif; font-size: 1.2rem;
+  margin: 0 0 .5rem; }
+.modal-caja p { margin: 0 0 1rem; color: var(--texto-suave); }
+.modal-caja .acciones { margin: 0; }
+
 /* ---- configuración: columnas de la hoja de cartera ---- */
 .cartera-columnas { display: grid; grid-template-columns: 1fr 1fr;
   gap: 2px 14px; margin: 0 0 10px; }

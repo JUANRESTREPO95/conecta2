@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block clase_main %}pantalla-ancha{% endblock %}
+{% block contenido %}
+<h1>Cartera — {{ empresa.nombre }}</h1>
+{% set extra_emp = ('&empresa=' ~ empresa.id) if (usuario.rol == 'super' and empresa) else '' %}
+{% set cola = ('tab=transportadoras&estado=' ~ estado ~ '&desde=' ~ (filtros.desde|urlencode) ~ '&hasta=' ~ (filtros.hasta|urlencode) ~ '&vendedor=' ~ (filtros.vendedor|urlencode) ~ '&q=' ~ (filtros.q|urlencode) ~ extra_emp) %}
+<div class="pestanas-cartera">
+  <a href="/cartera?tab=cartera{{ extra_emp }}">Cartera</a>
+  <a class="activa" href="/cartera?tab=transportadoras{{ extra_emp }}">Transportadoras</a>
+</div>
+
+{% if not hay_bd %}
+<div class="caja">
+  <p style="margin:0"><strong>Falta configurar la hoja BD.</strong></p>
+  <p class="sub" style="margin:.4rem 0 0">
+    {% if usuario.rol == 'super' %}
+    Pega el enlace de la hoja BD en
+    <a href="/configuracion?empresa={{ empresa.id }}">Configuración → Cartera</a>,
+    trae sus columnas, elige la fila inicial y guarda.
+    {% else %}
+    El super usuario debe configurar la hoja BD y sus columnas.
+    {% endif %}
+  </p>
+</div>
+{% else %}
+<p class="sub">
+  {% if actualizado %}Actualizado: {{ actualizado }}{% endif %}
+  {% if puede_editar %} — <a href="/cartera?tab=transportadoras&actualizar=1&estado={{ estado }}{{ extra_emp }}">Actualizar ahora</a>{% endif %}
+  {% if puede_editar and pendientes is not none %} — {{ pendientes }} pendiente{{ '' if pendientes == 1 else 's' }}{% endif %}
+</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if not configurada %}
+<div class="caja">
+  <p class="sub" style="margin:0">Falta mapear las columnas de la hoja BD
+    (Configuración → Cartera).</p>
+</div>
+{% else %}
+{% if puede_editar %}
+<div class="subpestanas">
+  <a class="{% if estado == 'pendiente' %}activa{% endif %}"
+     href="/cartera?tab=transportadoras&estado=pendiente{{ extra_emp }}">Pendiente</a>
+  <a class="{% if estado == 'registrado' %}activa{% endif %}"
+     href="/cartera?tab=transportadoras&estado=registrado{{ extra_emp }}">Registrado</a>
+</div>
+{% if request.query_params.get('ok') == 'guardado' %}<p class="ok">Guardado en la hoja BD.</p>{% endif %}
+{% if request.query_params.get('error') == 'no_factura' %}
+<p class="error">Esa factura ya no está en la hoja BD; actualiza la hoja.</p>
+{% endif %}
+{% endif %}
+<form method="get" action="/cartera" class="transp-filtros">
+  <input type="hidden" name="tab" value="transportadoras">
+  <input type="hidden" name="estado" value="{{ estado }}">
+  {% if usuario.rol == 'super' %}<input type="hidden" name="empresa" value="{{ empresa.id }}">{% endif %}
+  <label>Desde <input type="date" name="desde" value="{{ filtros.desde }}"></label>
+  <label>Hasta <input type="date" name="hasta" value="{{ filtros.hasta }}"></label>
+  {% if puede_editar %}
+  <label>Vendedor <input name="vendedor" value="{{ filtros.vendedor }}" placeholder="Nombre o código"></label>
+  {% endif %}
+  <label>Buscar <input name="q" value="{{ filtros.q }}" placeholder="Factura o cliente"></label>
+  <button type="submit">Filtrar</button>
+</form>
+{% if not filas %}
+<div class="caja"><p class="sub" style="margin:0">
+  {% if estado == 'pendiente' and puede_editar %}No hay facturas pendientes.
+  {% else %}No hay registros.{% endif %}
+</p></div>
+{% else %}
+<div class="cartera-marco">
+<table class="cartera-tabla">
+  <thead><tr>
+    <th>Factura</th><th>Fecha</th><th>Cliente</th><th>Ciudad</th>
+    <th>Teléfono</th><th>Vendedor</th>
+    <th>Cajas</th><th>Flete</th><th>Transportadora</th><th>Guía</th>
+    {% if puede_editar %}<th></th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for f in filas %}
+    <tr>
+      <td>{{ f.factura }}</td><td>{{ f.fecha }}</td><td>{{ f.cliente }}</td>
+      <td>{{ f.ciudad or '—' }}</td><td>{{ f.telefono or '—' }}</td>
+      <td>{{ f.vendedor or '—' }}</td>
+      <td>{{ f.cajas or '—' }}</td><td>{{ f.flete or '—' }}</td>
+      <td>{{ f.transportadora or '—' }}</td><td>{{ f.guia or '—' }}</td>
+      {% if puede_editar %}
+      <td><a href="/cartera/transportadoras/editar?factura={{ f.factura|urlencode }}{{ extra_emp }}">Editar</a></td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="sub">{{ total }} registro{{ '' if total == 1 else 's' }}.</p>
+{% if paginas > 1 %}
+<p class="pag">
+  {% if pagina > 1 %}<a href="/cartera?{{ cola }}&pagina={{ pagina - 1 }}">‹ anterior</a>{% endif %}
+  página {{ pagina }} de {{ paginas }}
+  {% if pagina < paginas %}<a href="/cartera?{{ cola }}&pagina={{ pagina + 1 }}">siguiente ›</a>{% endif %}
+</p>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

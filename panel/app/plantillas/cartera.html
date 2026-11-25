@@ -19,9 +19,14 @@
   </p>
 </div>
 {% else %}
+{% set extra_emp = ('&empresa=' ~ empresa.id) if (usuario.rol == 'super' and empresa) else '' %}
+<div class="pestanas-cartera">
+  <a class="activa" href="/cartera?tab=cartera{{ extra_emp }}">Cartera</a>
+  <a href="/cartera?tab=transportadoras{{ extra_emp }}">Transportadoras</a>
+</div>
 <p class="sub">
   {% if actualizado %}Actualizado: {{ actualizado }}{% endif %}
-  {% if puede_actualizar %} — <a href="/cartera?actualizar=1">Actualizar ahora</a>{% endif %}
+  {% if puede_actualizar %} — <a href="/cartera?actualizar=1{{ extra_emp }}">Actualizar ahora</a>{% endif %}
   — {{ filas|length }} registro{{ '' if filas|length == 1 else 's' }}
   {%- if usuario.rol == 'vendedor' %} de tu cartera{% endif %}
 </p>
