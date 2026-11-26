@@ -883,6 +883,18 @@ class AppState extends ChangeNotifier {
           timeout: const Duration(seconds: 60),
         );
         if (bodegaActiva?.id != bodegaId) return;
+        final total = (r['total'] as num?)?.toDouble();
+        final finales = (r['lineas'] as List?)
+                ?.whereType<Map>()
+                .map((l) => l.cast<String, dynamic>())
+                .toList() ??
+            const <Map<String, dynamic>>[];
+        if (finales.isNotEmpty && total != null) {
+          await base.reemplazarLineasPedido(
+              pedido['uuid'] as String, finales, total);
+        } else if (total != null) {
+          await base.actualizarPedido(pedido['uuid'] as String, total: total);
+        }
         await base.actualizarPedido(
           pedido['uuid'] as String,
           serverId: (r['id'] as num?)?.toInt(),
@@ -902,10 +914,12 @@ class AppState extends ChangeNotifier {
           return;
         }
         if (e.status == 400) {
+          final problemas = (e.datos['problemas'] as List?) ?? const [];
           await base.actualizarPedido(
             pedido['uuid'] as String,
             estado: 'error',
             error: e.message,
+            problemas: problemas.isEmpty ? null : jsonEncode(problemas),
           );
           continue;
         }
@@ -1010,6 +1024,82 @@ class AppState extends ChangeNotifier {
     await procesarCola();
   }
 
+  /// Reenvía un pedido rechazado pidiendo al panel que lo ajuste a la
+  /// existencia actual (baja cantidades y quita productos no disponibles).
+  Future<List<Map<String, dynamic>>> reenviarAjustado(String uuid) async {
+    if (!configurado || api == null) throw 'Falta configurar la app';
+    if (sesion == null || sesion!.isEmpty) {
+      sesionVencida = true;
+      notifyListeners();
+      throw 'Inicia sesión para enviar';
+    }
+    final base = db;
+    final pedido = await base.pedido(uuid);
+    if (pedido == null) throw 'No se encontró el pedido';
+    final lineas = await base.lineasDe(uuid);
+    final cuerpo = {
+      'uuid': uuid,
+      'referencia': pedido['referencia'] ?? '',
+      'cliente_codigo': pedido['cliente_codigo'] ?? '',
+      'cliente_nombre': pedido['cliente_nombre'] ?? '',
+      'cliente_nit': pedido['cliente_nit'] ?? '',
+      'autorizado_codigo': pedido['autorizado_codigo'] ?? '',
+      'lineas': lineas
+          .map((l) => {'codigo': l['codigo'], 'cantidad': l['cantidad']})
+          .toList(),
+      'ajustar': true,
+    };
+    try {
+      final r = await api!.post('/api/app/pedido', cuerpo,
+          timeout: const Duration(seconds: 60));
+      final total = (r['total'] as num?)?.toDouble() ?? 0;
+      final finales = (r['lineas'] as List?)
+              ?.whereType<Map>()
+              .map((l) => l.cast<String, dynamic>())
+              .toList() ??
+          const <Map<String, dynamic>>[];
+      if (finales.isNotEmpty) {
+        await base.reemplazarLineasPedido(uuid, finales, total);
+      } else if (total > 0) {
+        await base.actualizarPedido(uuid, total: total);
+      }
+      await base.actualizarPedido(
+        uuid,
+        serverId: (r['id'] as num?)?.toInt(),
+        numero: r['numero']?.toString(),
+        estado: r['estado']?.toString() ?? 'pendiente',
+      );
+      sesionVencida = false;
+      notifyListeners();
+      return (r['ajustes'] as List?)
+              ?.whereType<Map>()
+              .map((a) => a.cast<String, dynamic>())
+              .toList() ??
+          const <Map<String, dynamic>>[];
+    } on ApiException catch (e) {
+      final problemas = (e.datos['problemas'] as List?) ?? const [];
+      if (e.status == 401) {
+        sesionVencida = true;
+      }
+      await base.actualizarPedido(
+        uuid,
+        estado: e.status == 401 ? null : 'error',
+        error: e.message,
+        problemas: problemas.isEmpty ? null : jsonEncode(problemas),
+      );
+      notifyListeners();
+      rethrow;
+    } catch (_) {
+      await base.actualizarPedido(
+        uuid,
+        error: 'Sin conexión: se reintentará',
+        sumarIntento: true,
+      );
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   // ---------- carrito ----------
 
   /// Carga las líneas de un pedido anterior en el carrito (Reenviar).
@@ -1025,6 +1115,27 @@ class AppState extends ChangeNotifier {
     clienteSeleccionado = null;
     autorizadoSeleccionado = null;
     await _guardarCarrito();
+    notifyListeners();
+  }
+
+  /// Vuelve a dejar el cliente/autorizado de un pedido para reenviarlo.
+  void restaurarDatosPedido(Map<String, dynamic> pedido) {
+    final codigo = (pedido['cliente_codigo'] ?? '').toString();
+    if (codigo.isNotEmpty) {
+      clienteSeleccionado = {
+        'codigo': codigo,
+        'nombre': (pedido['cliente_nombre'] ?? '').toString(),
+        'nit': (pedido['cliente_nit'] ?? '').toString(),
+      };
+    }
+    final aut = (pedido['autorizado_codigo'] ?? '').toString();
+    if (aut.isNotEmpty) {
+      autorizadoSeleccionado = {
+        'codigo': aut,
+        'nombre': (pedido['autorizado_nombre'] ?? '').toString(),
+        'direccion': (pedido['autorizado_direccion'] ?? '').toString(),
+      };
+    }
     notifyListeners();
   }
 

@@ -20,7 +20,7 @@ class AppDb {
     final carpeta = await getDatabasesPath();
     _db = await openDatabase(
       p.join(carpeta, archivo),
-      version: 2,
+      version: 3,
       onCreate: (d, version) async {
         await d.execute('''
           CREATE TABLE productos (
@@ -83,7 +83,8 @@ class AppDb {
             creado TEXT,
             actualizado TEXT,
             intentos INTEGER DEFAULT 0,
-            ultimo_error TEXT
+            ultimo_error TEXT,
+            problemas TEXT
           )
         ''');
         await d.execute('''
@@ -110,6 +111,11 @@ class AppDb {
           try {
             await d.execute(
                 'ALTER TABLE pedidos ADD COLUMN vendedor_codigo TEXT');
+          } catch (_) {}
+        }
+        if (anterior < 3) {
+          try {
+            await d.execute('ALTER TABLE pedidos ADD COLUMN problemas TEXT');
           } catch (_) {}
         }
       },
@@ -395,18 +401,24 @@ class AppDb {
     String? numero,
     String? estado,
     String? error,
+    double? total,
+    String? problemas,
     bool sumarIntento = false,
   }) async {
     final d = await db;
     final campos = <String, Object?>{'actualizado': ahora()};
     if (serverId != null) campos['server_id'] = serverId;
     if (numero != null) campos['numero'] = numero;
-    if (estado != null) campos['estado'] = estado;
-    if (error != null) {
-      campos['ultimo_error'] = error;
-    } else if (estado != null && estado != 'por_enviar') {
-      campos['ultimo_error'] = null;
+    if (total != null) campos['total'] = total;
+    if (estado != null) {
+      campos['estado'] = estado;
+      if (estado != 'error') {
+        campos['problemas'] = null;
+        if (estado != 'por_enviar') campos['ultimo_error'] = null;
+      }
     }
+    if (problemas != null) campos['problemas'] = problemas;
+    if (error != null) campos['ultimo_error'] = error;
     if (sumarIntento) {
       await d.rawUpdate(
         'UPDATE pedidos SET intentos = COALESCE(intentos, 0) + 1 '
@@ -415,6 +427,28 @@ class AppDb {
       );
     }
     await d.update('pedidos', campos, where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  Future<void> reemplazarLineasPedido(String uuid,
+      List<Map<String, dynamic>> lineas, double total) async {
+    final d = await db;
+    await d.transaction((txn) async {
+      await txn.delete('pedido_lineas', where: 'uuid = ?', whereArgs: [uuid]);
+      for (final l in lineas) {
+        final cantidad = (l['cantidad'] as num?)?.toDouble() ?? 0;
+        await txn.insert('pedido_lineas', {
+          'uuid': uuid,
+          'codigo': l['codigo']?.toString() ?? '',
+          'descripcion': l['descripcion']?.toString() ?? '',
+          'cantidad': cantidad == cantidad.roundToDouble()
+              ? cantidad.toInt()
+              : cantidad,
+          'precio': (l['precio'] as num?)?.toDouble() ?? 0,
+        });
+      }
+      await txn.update('pedidos', {'total': total, 'actualizado': ahora()},
+          where: 'uuid = ?', whereArgs: [uuid]);
+    });
   }
 
   Future<List<Map<String, dynamic>>> pedidosPendientes(String vendedor) async {

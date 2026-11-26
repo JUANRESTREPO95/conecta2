@@ -127,11 +127,14 @@ class _PedidoTabState extends State<PedidoTab> {
       if (!mounted) return;
       _referencia.clear();
       final numero = guardado?['numero'];
+      final estado = guardado?['estado']?.toString();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(numero == null
-              ? 'Pedido guardado. Se enviará cuando haya internet.'
-              : 'Pedido $numero enviado.'),
+          content: Text(estado == 'error'
+              ? 'El panel rechazó el pedido. Revisa el motivo en Pedidos.'
+              : numero == null
+                  ? 'Pedido guardado. Se enviará cuando haya internet.'
+                  : 'Pedido $numero enviado.'),
         ),
       );
       widget.onIrAPedidos();

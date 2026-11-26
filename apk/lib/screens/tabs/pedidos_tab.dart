@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../hoja_app.dart';
@@ -72,10 +74,176 @@ class _PedidosTabState extends State<PedidosTab> {
     }
   }
 
+  List<Map<String, dynamic>> _problemasDe(Map<String, dynamic> pedido) {
+    final crudo = pedido['problemas']?.toString() ?? '';
+    if (crudo.isEmpty) return const [];
+    try {
+      final lista = jsonDecode(crudo);
+      if (lista is! List) return const [];
+      return lista
+          .whereType<Map>()
+          .map((p) => p.cast<String, dynamic>())
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  String _descripcionProblema(Map<String, dynamic> p) {
+    final desc = (p['descripcion'] ?? '').toString().trim();
+    final codigo = (p['codigo'] ?? '').toString().trim();
+    if (desc.isNotEmpty) return '$desc${codigo.isEmpty ? '' : ' ($codigo)'}';
+    return codigo.isNotEmpty ? codigo : 'Un producto';
+  }
+
+  String _textoProblema(Map<String, dynamic> p) {
+    final tipo = p['tipo']?.toString() ?? '';
+    final desc = _descripcionProblema(p);
+    if (tipo == 'sin_stock') {
+      final pedida = (p['pedida'] as num?)?.toInt() ?? 0;
+      final disponible = (p['disponible'] as num?)?.toInt() ?? 0;
+      return 'Falta existencia de $desc: pediste $pedida y solo hay $disponible.';
+    }
+    if (tipo == 'no_disponible') {
+      return '$desc ya no está disponible en el catálogo.';
+    }
+    if (tipo == 'invalida') {
+      return 'Una línea del pedido está incompleta.';
+    }
+    if (tipo == 'cliente') {
+      return (p['mensaje'] ??
+              'El cliente no está registrado en el panel.')
+          .toString();
+    }
+    if (tipo == 'vacio') {
+      return (p['mensaje'] ?? 'El pedido no tiene productos.').toString();
+    }
+    return (p['mensaje'] ?? 'Revisa este producto.').toString();
+  }
+
+  bool _puedeAjustar(List<Map<String, dynamic>> problemas) {
+    if (problemas.isEmpty) return false;
+    return problemas.every((p) {
+      final tipo = p['tipo']?.toString();
+      return tipo == 'sin_stock' ||
+          tipo == 'no_disponible' ||
+          tipo == 'invalida';
+    });
+  }
+
+  String _resumenProblemas(List<Map<String, dynamic>> problemas) {
+    if (problemas.isEmpty) return '';
+    if (problemas.length == 1) return _textoProblema(problemas.first);
+    final sinStock = problemas.where((p) => p['tipo'] == 'sin_stock').length;
+    final noDisp =
+        problemas.where((p) => p['tipo'] == 'no_disponible').length;
+    final otros = problemas.length - sinStock - noDisp;
+    final partes = <String>[];
+    if (sinStock > 0) partes.add('$sinStock con falta de existencia');
+    if (noDisp > 0) partes.add('$noDisp no disponibles');
+    if (otros > 0) partes.add('$otros por revisar');
+    return '${problemas.length} productos con problemas: ${partes.join(', ')}.';
+  }
+
+  Future<void> _ajustarYReenviar(Map<String, dynamic> pedido,
+      List<Map<String, dynamic>> problemas) async {
+    final cambios = <String>[];
+    for (final p in problemas) {
+      final tipo = p['tipo']?.toString() ?? '';
+      final desc = _descripcionProblema(p);
+      if (tipo == 'sin_stock') {
+        final disponible = (p['disponible'] as num?)?.toInt() ?? 0;
+        final pedida = (p['pedida'] as num?)?.toInt() ?? 0;
+        if (disponible > 0) {
+          cambios.add('$desc: de $pedida a $disponible');
+        } else {
+          cambios.add('$desc: se quitará (no hay existencia)');
+        }
+      } else if (tipo == 'no_disponible') {
+        cambios.add('$desc: se quitará (no disponible)');
+      } else if (tipo == 'invalida') {
+        cambios.add('Una línea incompleta se quitará');
+      }
+    }
+    if (cambios.isEmpty) return;
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Ajustar el pedido'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('El panel va a ajustar el pedido así:'),
+              const SizedBox(height: 10),
+              for (final c in cambios)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('• $c'),
+                ),
+              const SizedBox(height: 8),
+              const Text('Después se enviará con esos cambios.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Ajustar y enviar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+    if (!mounted) return;
+    Navigator.pop(context);
+    try {
+      final ajustes =
+          await appState.reenviarAjustado(pedido['uuid'] as String);
+      await _cargar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_resumenAjustes(ajustes))),
+      );
+    } catch (e) {
+      await _cargar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo enviar: $e')),
+      );
+    }
+  }
+
+  String _resumenAjustes(List<Map<String, dynamic>> ajustes) {
+    if (ajustes.isEmpty) return 'Pedido enviado.';
+    final partes = <String>[];
+    for (final a in ajustes) {
+      final tipo = a['tipo']?.toString() ?? '';
+      final desc = _descripcionProblema(a);
+      if (tipo == 'ajustada') {
+        final pedida = (a['pedida'] as num?)?.toInt() ?? 0;
+        final fin = (a['final'] as num?)?.toInt() ?? 0;
+        partes.add('$desc: $pedida → $fin');
+      } else if (tipo == 'quitado') {
+        partes.add('$desc: quitado');
+      }
+    }
+    return partes.isEmpty
+        ? 'Pedido enviado.'
+        : 'Pedido enviado. ${partes.join('; ')}';
+  }
+
   Future<void> _detalle(Map<String, dynamic> pedido) async {
     final lineas = await appState.db.lineasDe(pedido['uuid'] as String);
     if (!mounted) return;
     final estado = _estado(pedido['estado']?.toString() ?? '');
+    final problemas = _problemasDe(pedido);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -97,7 +265,10 @@ class _PedidosTabState extends State<PedidosTab> {
                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
                 children: [
                   Text(
-                    pedido['numero']?.toString() ?? 'Pedido por enviar',
+                    pedido['numero']?.toString() ??
+                        (pedido['estado'] == 'error'
+                            ? 'Pedido con error'
+                            : 'Pedido por enviar'),
                     style: const TextStyle(
                         fontSize: 22, fontWeight: FontWeight.w900),
                   ),
@@ -157,7 +328,33 @@ class _PedidosTabState extends State<PedidosTab> {
                               fontSize: 18, fontWeight: FontWeight.w900)),
                     ],
                   ),
-                  if ((pedido['ultimo_error'] ?? '') != '' &&
+                  if (problemas.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF1F2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('¿Qué pasó con el pedido?',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF9F1239))),
+                          const SizedBox(height: 6),
+                          for (final q in problemas)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text('• ${_textoProblema(q)}',
+                                  style: const TextStyle(
+                                      color: Color(0xFF9F1239))),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ] else if ((pedido['ultimo_error'] ?? '') != '' &&
                       pedido['estado'] != 'montado') ...[
                     const SizedBox(height: 12),
                     Container(
@@ -168,6 +365,29 @@ class _PedidosTabState extends State<PedidosTab> {
                       ),
                       child: Text('${pedido['ultimo_error']}',
                           style: const TextStyle(color: Color(0xFF9F1239))),
+                    ),
+                  ],
+                  if (pedido['estado'] == 'error' &&
+                      problemas.isNotEmpty &&
+                      _puedeAjustar(problemas)) ...[
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () => _ajustarYReenviar(pedido, problemas),
+                      icon: const Icon(Icons.auto_fix_high),
+                      label: const Text('Ajustar y reenviar'),
+                    ),
+                  ],
+                  if (pedido['estado'] == 'error' && problemas.isEmpty) ...[
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await appState.reintentarPedido(
+                            pedido['uuid'] as String);
+                        await _cargar();
+                      },
+                      icon: const Icon(Icons.upload),
+                      label: const Text('Reintentar envío'),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -186,6 +406,7 @@ class _PedidosTabState extends State<PedidosTab> {
                     OutlinedButton.icon(
                       onPressed: () async {
                         await appState.cargarCarrito(lineas);
+                        appState.restaurarDatosPedido(pedido);
                         if (mounted) Navigator.pop(context);
                         widget.onIrAlPedido();
                       },
@@ -276,6 +497,7 @@ class _PedidosTabState extends State<PedidosTab> {
                       final p = _pedidos[i];
                       final estado =
                           _estado(p['estado']?.toString() ?? '');
+                      final problemas = _problemasDe(p);
                       return InkWell(
                         onTap: () => _detalle(p),
                         borderRadius: BorderRadius.circular(14),
@@ -293,7 +515,10 @@ class _PedidosTabState extends State<PedidosTab> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      p['numero']?.toString() ?? 'Por enviar',
+                                      p['numero']?.toString() ??
+                                          (p['estado'] == 'error'
+                                              ? 'Pedido con error'
+                                              : 'Por enviar'),
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w800),
                                     ),
@@ -335,6 +560,31 @@ class _PedidosTabState extends State<PedidosTab> {
                                         fontWeight: FontWeight.w800,
                                         color: estado.color)),
                               ),
+                              if (p['estado'] == 'error' ||
+                                  ((p['ultimo_error'] ?? '') != '' &&
+                                      p['estado'] != 'montado')) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  problemas.isNotEmpty
+                                      ? _resumenProblemas(problemas)
+                                      : ((p['ultimo_error'] ?? '')
+                                              .toString()
+                                              .isEmpty
+                                          ? 'Revisa el pedido para ver qué pasó.'
+                                          : '${p['ultimo_error']}'),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFF9F1239)),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text('Toca para ver y corregir',
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF9F1239))),
+                              ],
                             ],
                           ),
                         ),

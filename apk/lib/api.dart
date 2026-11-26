@@ -5,8 +5,9 @@ import 'package:http/http.dart' as http;
 class ApiException implements Exception {
   final int status;
   final String message;
+  final Map<String, dynamic> datos;
 
-  ApiException(this.status, this.message);
+  ApiException(this.status, this.message, [this.datos = const {}]);
 
   bool get tokenInvalido => status == 401;
   bool get sesionVencida => status == 401;
@@ -82,6 +83,7 @@ class Api {
       throw ApiException(
         respuesta.statusCode,
         (datos['error'] ?? 'Error ${respuesta.statusCode}').toString(),
+        datos,
       );
     }
     return datos;
