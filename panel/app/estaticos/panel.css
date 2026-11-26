@@ -374,6 +374,12 @@ main.pantalla-ancha { max-width: 1900px; }
   gap: .2rem 1.5rem; margin-bottom: 1rem; }
 .transp-datos p { margin: .2rem 0; font-size: .92rem; }
 @media (max-width: 640px) { .transp-datos { grid-template-columns: 1fr; } }
+.transp-acciones { white-space: nowrap; }
+.transp-acciones a { margin-right: .7rem; }
+.enlace-boton { background: none; border: 0; padding: 0; margin: 0;
+  color: var(--primario); font: inherit; font-weight: 700; cursor: pointer;
+  text-decoration: underline; }
+.enlace-boton:hover { color: var(--oscuro); }
 
 /* modal de confirmación (sin envío) */
 .modal-fondo { position: fixed; inset: 0; background: rgba(15, 23, 42, .55);

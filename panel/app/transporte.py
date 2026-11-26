@@ -17,7 +17,8 @@ from app import cartera_hoja, db, seguridad
 TIEMPO_CACHE = 600
 MAX_FILAS = 30000
 CAMPOS = ("factura", "fecha", "cliente", "direccion", "ciudad",
-          "telefono", "vendedor", "cajas", "flete", "transportadora", "guia")
+          "telefono", "vendedor", "cajas", "flete", "transportadora",
+          "guia", "fecha_confirmacion")
 ESCRIBE = ("cajas", "flete", "transportadora", "guia")
 _candado = threading.Lock()
 
@@ -104,6 +105,27 @@ def borrar_cache(empresa_id: int) -> None:
     db.ejecutar("DELETE FROM cartera_bd WHERE empresa_id = ?", (empresa_id,))
 
 
+def marcar_confirmada(empresa, datos: dict | None, indices: dict, factura: str,
+                      fecha_bd: str) -> None:
+    """Refleja la fecha en la caché local sin esperar a que Google la exporte.
+
+    Así la fila sale de Registrado de una vez; el refresco de fondo trae la
+    hoja real más adelante.
+    """
+    columna = indices.get("fecha_confirmacion", -1)
+    if not datos or columna < 0:
+        return
+    buscada = str(factura or "").strip()
+    for fila in datos.get("filas") or []:
+        if str(valores_de(fila, indices).get("factura") or "").strip() != buscada:
+            continue
+        if columna >= len(fila):
+            fila.extend([""] * (columna + 1 - len(fila)))
+        fila[columna] = fecha_bd
+        _guardar(empresa["id"], datos)
+        return
+
+
 def refrescar_todas() -> None:
     filas = db.filas("SELECT * FROM empresas "
                      "WHERE TRIM(COALESCE(bd_url, '')) <> ''")
@@ -164,6 +186,10 @@ def auto_campo(campo: str, headers: list[str]) -> str:
         return primero("TRANSPORTADORA", "TRANSPORTE")
     if campo == "guia":
         return primero("GUIA")
+    if campo == "fecha_confirmacion":
+        return primero("FECHA CONFIRMACION", "FECHA DE CONFIRMACION",
+                       "FECHA ENTREGA", "FECHA DE ENTREGA",
+                       "FECHA RECIBIDO", "CONFIRMADO")
     return ""
 
 
@@ -244,6 +270,12 @@ def fecha_de(valor) -> datetime | None:
     return None
 
 
+def fecha_ddmmaaaa(texto) -> str:
+    """dd/mm/aaaa para la hoja (acepta el valor de un input date)."""
+    fecha = fecha_de(texto)
+    return fecha.strftime("%d/%m/%Y") if fecha else ""
+
+
 def _claves_usuario(usuario) -> set[str]:
     claves = set()
     for valor in (usuario["codigo"], usuario["nombre"]):
@@ -287,6 +319,7 @@ def filas_lista(usuario, datos: dict | None, indices: dict, estado: str,
     vendedor_filtro = _normal(filtros.get("vendedor") or "")
     desde = fecha_de(filtros.get("desde"))
     hasta = fecha_de(filtros.get("hasta"))
+    fecha_idx = indices.get("fecha_confirmacion", -1)
     salida = []
     for fila in datos.get("filas") or []:
         valores = valores_de(fila, indices)
@@ -294,16 +327,24 @@ def filas_lista(usuario, datos: dict | None, indices: dict, estado: str,
         if not factura:
             continue
         llena = completa(valores, indices)
+        confirmada = (fecha_idx >= 0 and
+                      str(valores.get("fecha_confirmacion") or "").strip() != "")
         if vendedor:
-            if not llena:
+            # el vendedor solo ve sus registradas (sin confirmar)
+            if not llena or confirmada:
                 continue
             if not _coincide(valores.get("vendedor") or "", claves):
                 continue
         else:
-            if estado == "pendiente" and llena:
-                continue
-            if estado == "registrado" and not llena:
-                continue
+            if estado == "confirmada":
+                if not confirmada:
+                    continue
+            elif estado == "registrado":
+                if not llena or confirmada:
+                    continue
+            else:  # pendiente
+                if llena or confirmada:
+                    continue
             if vendedor_filtro and _normal(
                     valores.get("vendedor") or "") != vendedor_filtro:
                 continue
@@ -316,9 +357,15 @@ def filas_lista(usuario, datos: dict | None, indices: dict, estado: str,
         if hasta is not None and fecha is not None and fecha > hasta:
             continue
         salida.append({**valores, "factura": factura, "completa": llena,
+                       "confirmada": confirmada,
                        "fecha_orden": fecha or datetime.min})
     salida.sort(key=lambda f: (f["fecha_orden"], f["factura"]), reverse=True)
     return salida
+
+
+def es_de_vendedor(usuario, fila: dict) -> bool:
+    """¿La fila pertenece al vendedor que la está mirando?"""
+    return _coincide(fila.get("vendedor") or "", _claves_usuario(usuario))
 
 
 def buscar_fila(datos: dict | None, indices: dict, factura: str) -> dict | None:
@@ -342,11 +389,15 @@ def token_agente(empresa_id: int) -> str:
     return seguridad.descifrar_clave(fila["clave_visible"])
 
 
-def escribir(empresa, factura: str, valores: dict, indices: dict):
-    """Actualiza cajas/flete/transportadora/guía de una factura en BD.
+def escribir(empresa, factura: str, valores: dict, indices: dict,
+             campos=None):
+    """Escribe los campos indicados en la fila de esa factura en BD.
 
+    Por defecto guarda cajas/flete/transportadora/guía. Para confirmar una
+    entrega se llama con campos=("fecha_confirmacion",).
     Devuelve (ok, mensaje). No toca la hoja de cartera.
     """
+    campos = tuple(campos or ESCRIBE)
     url = (empresa["bd_script_url"] or "").strip()
     token = token_agente(empresa["id"])
     if not url:
@@ -355,23 +406,29 @@ def escribir(empresa, factura: str, valores: dict, indices: dict):
         return False, ("Falta el token del agente. Renuévalo en Empresas "
                        "para poder escribir en la hoja BD.")
     letras = {}
-    for campo in ESCRIBE + ("factura",):
+    for campo in campos + ("factura",):
         indice = indices.get(campo, -1)
         if indice < 0:
             return False, f"Falta configurar la columna de {campo}."
         letras[campo] = letra_columna(indice)
+    enviar = {}
+    for campo in campos:
+        valor = valores.get(campo)
+        if valor is None:
+            continue
+        if campo == "cajas":
+            enviar[campo] = int(valor)
+        elif campo == "flete":
+            enviar[campo] = float(valor)
+        else:
+            enviar[campo] = str(valor).strip()
     carga = {
         "token": token,
         "hoja": (empresa["bd_hoja"] or "BD"),
         "inicio": max(2, int(empresa["bd_fila_inicio"] or 2)),
         "factura": str(factura).strip(),
         "columnas": letras,
-        "valores": {
-            "cajas": int(valores.get("cajas") or 0),
-            "flete": float(valores.get("flete") or 0),
-            "transportadora": str(valores.get("transportadora") or "").strip(),
-            "guia": str(valores.get("guia") or "").strip(),
-        },
+        "valores": enviar,
     }
     pedido = urllib.request.Request(
         url, data=json.dumps(carga).encode(),

@@ -1550,11 +1550,12 @@ def _cartera_transportadoras(request: Request, usuario, empresa):
     configurada = bool((empresa["bd_url"] or "").strip()) and all(
         indices.get(campo, -1) >= 0
         for campo in transporte.ESCRIBE + ("factura",))
+    hay_fecha = indices.get("fecha_confirmacion", -1) >= 0
     if usuario["rol"] == "vendedor":
         estado = "registrado"
     else:
         estado = request.query_params.get("estado") or "pendiente"
-        if estado not in ("pendiente", "registrado"):
+        if estado not in ("pendiente", "registrado", "confirmada"):
             estado = "pendiente"
     filtros = {
         "q": (request.query_params.get("q") or "").strip(),
@@ -1582,6 +1583,7 @@ def _cartera_transportadoras(request: Request, usuario, empresa):
         "tab": "transportadoras", "estado": estado,
         "puede_editar": puede_editar,
         "configurada": configurada,
+        "hay_fecha": hay_fecha,
         "hay_bd": bool((empresa["bd_url"] or "").strip()),
         "filas": pagina_filas, "total": total,
         "pagina": pagina, "paginas": paginas, "filtros": filtros,
@@ -1663,6 +1665,54 @@ def _transportadora_valores(cajas: str, flete: str, transportadora: str,
         return None, "Escribe la guía o usa 'Sin envío'."
     return {"cajas": cajas_num, "flete": flete_num,
             "transportadora": transportadora, "guia": guia}, ""
+
+
+def confirmar_transportadora(usuario, empresa, factura: str, fecha: str):
+    """Escribe la fecha de entrega en la columna configurada de la BD.
+
+    Devuelve (ok, mensaje). El vendedor solo puede confirmar sus facturas.
+    """
+    estado_bd = transporte.leer(empresa)
+    datos = estado_bd["datos"]
+    indices = transporte.mapa_indices(empresa, (datos or {}).get("headers") or [])
+    if indices.get("fecha_confirmacion", -1) < 0:
+        return False, ("Falta configurar la columna de la fecha de "
+                       "confirmación en Configuración → Cartera.")
+    fila = transporte.buscar_fila(datos, indices, factura)
+    if fila is None:
+        return False, "Esa factura ya no está en la hoja BD."
+    if not transporte.completa(fila, indices):
+        return False, "La factura todavía no está completa."
+    if usuario["rol"] == "vendedor" and not transporte.es_de_vendedor(
+            usuario, fila):
+        return False, "No es tu factura."
+    fecha_bd = transporte.fecha_ddmmaaaa(fecha)
+    if not fecha_bd:
+        return False, "Elige una fecha válida."
+    ok, mensaje = transporte.escribir(
+        empresa, factura, {"fecha_confirmacion": fecha_bd}, indices,
+        campos=("fecha_confirmacion",))
+    if ok:
+        transporte.marcar_confirmada(empresa, datos, indices, factura, fecha_bd)
+    return ok, mensaje
+
+
+@app.post("/cartera/transportadoras/confirmar")
+def transportadora_confirmar(request: Request, factura: str = Form(...),
+                             fecha: str = Form("")):
+    usuario = requiere_rol(request, ("vendedor", "admin", "super"))
+    if usuario is None:
+        return RedirectResponse("/cartera?tab=transportadoras", status_code=303)
+    empresa = empresa_del(usuario, None)
+    if empresa is None:
+        return RedirectResponse("/cartera", status_code=303)
+    ok, mensaje = confirmar_transportadora(usuario, empresa, factura, fecha)
+    if not ok:
+        import urllib.parse
+        return _volver_transportadoras(usuario, empresa, "registrado",
+                                       "error=" + urllib.parse.quote(mensaje))
+    return _volver_transportadoras(usuario, empresa, "registrado",
+                                   "ok=confirmado")
 
 
 @app.post("/cartera/transportadoras/guardar")
@@ -2332,7 +2382,8 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
                        bd_col_cajas: str = Form(""),
                        bd_col_flete: str = Form(""),
                        bd_col_transportadora: str = Form(""),
-                       bd_col_guia: str = Form("")):
+                       bd_col_guia: str = Form(""),
+                       bd_col_fecha_confirmacion: str = Form("")):
     usuario = requiere_rol(request, ("super",))
     if usuario is None:
         return RedirectResponse("/login", status_code=303)
@@ -2424,6 +2475,7 @@ def configuracion_post(request: Request, empresa_id: int = Form(...),
         "vendedor": bd_col_vendedor, "cajas": bd_col_cajas,
         "flete": bd_col_flete, "transportadora": bd_col_transportadora,
         "guia": bd_col_guia,
+        "fecha_confirmacion": bd_col_fecha_confirmacion,
     }.items() if str(valor or "").strip()}
     mapa_bd_json = json.dumps(mapa_bd, ensure_ascii=False)
     previo_bd_json = ((actual["bd_columnas"] if actual else "") or "")
