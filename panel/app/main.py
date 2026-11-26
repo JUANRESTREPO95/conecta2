@@ -429,6 +429,22 @@ def _json_pedido(texto: str, problemas: list, codigo: int = 400) -> Response:
         status_code=codigo, media_type="application/json")
 
 
+def producto_visible(empresa, codigo: str):
+    """Producto que muestra el catálogo, con la misma regla de catalogo_modo.
+
+    El catálogo puede estar en 'internet', 'activos' o 'todos'; el carrito y
+    el pedido deben aceptar exactamente lo que el catálogo muestra.
+    """
+    modo = (empresa["catalogo_modo"] or "internet").strip().lower()
+    condicion = "empresa_id = ? AND codigo = ?"
+    if modo == "activos":
+        condicion += " AND activo = 1"
+    elif modo != "todos":
+        condicion += " AND internet = 1 AND activo = 1"
+    return db.fila("SELECT codigo, descripcion, precio FROM productos "
+                   "WHERE " + condicion, (empresa["id"], codigo))
+
+
 def sesion_app(request: Request, empresa_id: int):
     """Sesión del vendedor que la app manda en el encabezado X-Sesion."""
     token = (request.headers.get("x-sesion") or "").strip()
@@ -857,10 +873,7 @@ async def app_pedido(request: Request):
                                 "descripcion": "",
                                 "motivo": "inválida"})
             continue
-        prod = db.fila(
-            "SELECT descripcion, precio FROM productos WHERE empresa_id = ? "
-            "AND codigo = ? AND internet = 1 AND activo = 1",
-            (empresa["id"], codigo))
+        prod = producto_visible(empresa, codigo)
         if prod is None:
             conocido = db.fila(
                 "SELECT descripcion FROM productos WHERE empresa_id = ? "
@@ -2957,9 +2970,7 @@ def pedido_agregar(request: Request, codigo: str = Form(...), cantidad: float = 
     if empresa is None:
         return RedirectResponse("/catalogo", status_code=303)
     cantidad = max(1, int(cantidad or 1))
-    producto = db.fila("SELECT codigo, descripcion, precio FROM productos "
-                       "WHERE empresa_id = ? AND codigo = ? AND internet = 1 AND activo = 1",
-                       (empresa["id"], codigo))
+    producto = producto_visible(empresa, codigo)
     if producto is None:
         return RedirectResponse("/catalogo?aviso=producto", status_code=303)
     disponible = int(existencia_visible(empresa, producto["codigo"]))
@@ -3043,10 +3054,7 @@ def pedido_cantidad(request: Request, codigo: str = Form(...), cantidad: str = F
     if numero <= 0:
         carrito = [i for i in carrito if i["codigo"] != codigo]
     else:
-        producto = db.fila(
-            "SELECT codigo, descripcion, precio FROM productos "
-            "WHERE empresa_id = ? AND codigo = ? AND internet = 1 AND activo = 1",
-            (empresa["id"], codigo))
+        producto = producto_visible(empresa, codigo)
         if producto is None:
             if es_fetch:
                 return {"ok": False, "mensaje": "Producto no disponible.",
