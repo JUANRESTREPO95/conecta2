@@ -295,7 +295,7 @@ class _AjustesTabState extends State<AjustesTab> {
         ),
         const SizedBox(height: 18),
         const Center(
-          child: Text('Conecta2 1.0.29',
+          child: Text('Conecta2 1.0.30',
               style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
         ),
       ],
