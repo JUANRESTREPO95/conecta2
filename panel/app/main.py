@@ -420,6 +420,15 @@ def _json_error(texto: str, codigo: int = 400) -> Response:
                     media_type="application/json")
 
 
+def _json_pedido(texto: str, problemas: list, codigo: int = 400) -> Response:
+    """Error de pedido con detalle para que la app explique y ajuste."""
+    import json as _json
+    return Response(
+        _json.dumps({"error": texto, "problemas": problemas},
+                    ensure_ascii=False),
+        status_code=codigo, media_type="application/json")
+
+
 def sesion_app(request: Request, empresa_id: int):
     """Sesión del vendedor que la app manda en el encabezado X-Sesion."""
     token = (request.headers.get("x-sesion") or "").strip()
@@ -783,16 +792,26 @@ async def app_pedido(request: Request):
     cliente_nombre = str(datos.get("cliente_nombre") or "").strip()
     cliente_nit = str(datos.get("cliente_nit") or "").strip()
     autorizado_codigo = str(datos.get("autorizado_codigo") or "").strip()
+    ajustar = datos.get("ajustar") is True
     lineas = datos.get("lineas") or []
     if not isinstance(lineas, list) or not lineas:
-        return _json_error("el pedido no tiene líneas")
+        return _json_pedido(
+            "el pedido no tiene líneas",
+            [{"tipo": "vacio",
+              "mensaje": "El pedido no tiene productos."}])
     if empresa["usar_clientes"] and not cliente_codigo:
-        return _json_error("falta el cliente")
+        return _json_pedido(
+            "falta el cliente",
+            [{"tipo": "cliente",
+              "mensaje": "Falta elegir el cliente."}])
     if empresa["usar_clientes"]:
         cli = db.fila("SELECT nombre, nit FROM clientes WHERE empresa_id = ? "
                       "AND codigo = ?", (empresa["id"], cliente_codigo))
         if cli is None:
-            return _json_error("cliente no encontrado")
+            return _json_pedido(
+                "cliente no encontrado",
+                [{"tipo": "cliente",
+                  "mensaje": "El cliente no está registrado en el panel."}])
         cliente_nombre = (cli["nombre"] or cliente_nombre)
         cliente_nit = (cli["nit"] or cliente_nit)
     else:
@@ -810,11 +829,19 @@ async def app_pedido(request: Request):
             aut_direccion = aut["direccion"]
 
     items = []
+    problemas = []
+    ajustes = []
     faltantes = []
     sin_stock = []
     for linea in lineas:
         if not isinstance(linea, dict):
+            problemas.append({"tipo": "invalida", "codigo": "",
+                              "mensaje": "Línea inválida."})
             faltantes.append("(línea inválida)")
+            if ajustar:
+                ajustes.append({"tipo": "quitado", "codigo": "",
+                                "descripcion": "Línea inválida",
+                                "motivo": "inválida"})
             continue
         codigo = str(linea.get("codigo") or "")
         try:
@@ -822,26 +849,66 @@ async def app_pedido(request: Request):
         except (TypeError, ValueError):
             cantidad = 0
         if not codigo or cantidad <= 0:
+            problemas.append({"tipo": "invalida", "codigo": codigo,
+                              "mensaje": "Código o cantidad inválidos."})
             faltantes.append(codigo or "(sin código)")
+            if ajustar:
+                ajustes.append({"tipo": "quitado", "codigo": codigo,
+                                "descripcion": "",
+                                "motivo": "inválida"})
             continue
         prod = db.fila(
             "SELECT descripcion, precio FROM productos WHERE empresa_id = ? "
             "AND codigo = ? AND internet = 1 AND activo = 1",
             (empresa["id"], codigo))
         if prod is None:
+            conocido = db.fila(
+                "SELECT descripcion FROM productos WHERE empresa_id = ? "
+                "AND codigo = ?", (empresa["id"], codigo))
+            descripcion = ((conocido["descripcion"] if conocido else "") or "")
+            problemas.append({"tipo": "no_disponible", "codigo": codigo,
+                              "descripcion": descripcion})
             faltantes.append(codigo)
+            if ajustar:
+                ajustes.append({"tipo": "quitado", "codigo": codigo,
+                                "descripcion": descripcion,
+                                "motivo": "no disponible"})
             continue
         disponible = existencia_visible(empresa, codigo)
         if cantidad > disponible:
+            problemas.append({"tipo": "sin_stock", "codigo": codigo,
+                              "descripcion": prod["descripcion"],
+                              "pedida": cantidad,
+                              "disponible": int(disponible)})
             sin_stock.append(f"{codigo} (hay {int(disponible)})")
-            continue
+            if ajustar and disponible > 0:
+                ajustes.append({"tipo": "ajustada", "codigo": codigo,
+                                "descripcion": prod["descripcion"],
+                                "pedida": cantidad,
+                                "final": disponible})
+                cantidad = disponible
+            elif ajustar:
+                ajustes.append({"tipo": "quitado", "codigo": codigo,
+                                "descripcion": prod["descripcion"],
+                                "motivo": "sin existencia"})
+                continue
+            else:
+                continue
         items.append({"codigo": codigo, "descripcion": prod["descripcion"],
                       "cantidad": cantidad, "precio": float(prod["precio"] or 0)})
-    if faltantes:
-        return _json_error("productos no disponibles: " + ", ".join(faltantes[:10]))
-    if sin_stock:
-        return _json_error(
-            "Sin existencia suficiente: " + ", ".join(sin_stock[:10]))
+    if problemas and not ajustar:
+        partes = []
+        if faltantes:
+            partes.append("productos no disponibles: " +
+                          ", ".join(faltantes[:10]))
+        if sin_stock:
+            partes.append("Sin existencia suficiente: " +
+                          ", ".join(sin_stock[:10]))
+        return _json_pedido(" | ".join(partes) or "Revisa el pedido",
+                            problemas)
+    if ajustar and not items:
+        return _json_pedido("No quedó ningún producto con existencia",
+                            problemas)
     total = sum(i["cantidad"] * i["precio"] for i in items)
     numero = numero_siguiente(empresa["id"], usuario, empresa)
 
@@ -879,7 +946,8 @@ async def app_pedido(request: Request):
     fila = db.fila("SELECT creado FROM pedidos WHERE id = ?", (pedido_id,))
     return {"ok": True, "id": pedido_id, "numero": numero,
             "estado": "pendiente", "total": total,
-            "creado": fila["creado"] if fila else ""}
+            "creado": fila["creado"] if fila else "",
+            "ajustes": ajustes, "lineas": items}
 
 
 _SQL_PRODUCTO = (
