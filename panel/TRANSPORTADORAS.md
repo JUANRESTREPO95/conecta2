@@ -19,9 +19,10 @@ La **fila 1 son los títulos** y los datos empiezan en la fila que elijas
 | I | flete (precio del envío) | **Panel** |
 | J | transportadora | **Panel** |
 | K | guía | **Panel** |
-| L+ | — | se ignora |
+| L | fecha de confirmación | **Panel** (al confirmar la entrega) |
+| M+ | — | se ignora |
 
-- Sin celdas combinadas ni fórmulas en H–K (el script las escribe).
+- Sin celdas combinadas ni fórmulas en H–L (el script las escribe).
 - La columna A debe ser única por factura (es la llave para actualizar).
 - Deja la hoja en **“Cualquiera con el enlace puede ver”**. No hace falta
   que sea editable por cualquiera: la escritura va por Apps Script.
@@ -42,7 +43,8 @@ La **fila 1 son los títulos** y los datos empiezan en la fila que elijas
 
 ```javascript
 /**
- * Conecta2 — escribe cajas, flete, transportadora y guía en la hoja BD.
+ * Conecta2 — escribe en la hoja BD los campos que mande el panel
+ * (cajas, flete, transportadora, guía y fecha de confirmación).
  * El panel manda el token del agente y las letras de las columnas.
  */
 const TOKEN = 'PEGA_AQUI_EL_TOKEN_DEL_AGENTE';
@@ -84,7 +86,8 @@ function doPost(e) {
       return responder({ ok: false, mensaje: 'factura no encontrada en la hoja BD' });
     }
     const valores = cuerpo.valores || {};
-    ['cajas', 'flete', 'transportadora', 'guia'].forEach(function (campo) {
+    // escribe solo los campos que llegaron (guardar escribe 4; confirmar, 1)
+    Object.keys(valores).forEach(function (campo) {
       const columna = numeroDeLetra(columnas[campo]);
       if (!columna) return;
       if (valores[campo] === undefined || valores[campo] === null) return;
@@ -123,14 +126,24 @@ Cartera → Configuración → columna Cartera → **Hoja BD de transportadoras*
 3. **Los datos empiezan en la fila**: por ejemplo 2, o la fila donde quieras
    iniciar el trámite.
 4. Mapea cada campo con su columna (factura, fecha, cliente, dirección,
-   ciudad, teléfono, vendedor, cajas, flete, transportadora, guía).
+   ciudad, teléfono, vendedor, cajas, flete, transportadora, guía y
+   **fecha de confirmación**). Si la hoja todavía no tiene esa columna,
+   créala (por ejemplo `FECHA CONFIRMACION`); al traer las columnas se
+   detecta sola.
 5. Pega la **URL del script** (`/exec`).
 6. Nombre de la pestaña (por defecto `BD`).
 7. Guardar.
 
 En el panel, en el **menú de Cartera → Transportadora**:
-- Admin/super: Pendiente y Registrado, con Editar y “Sin envío / Retiro en bodega”.
-- Vendedor: solo sus filas registradas, en lectura.
+- Admin/super: Pendiente, Registrado y Confirmadas, con Editar y
+  “Sin envío / Retiro en bodega”.
+- Vendedor: solo sus filas registradas, con el botón **Confirmar**.
+
+**Confirmar** (panel y app): abre la fecha de hoy (editable) y la escribe
+como `dd/mm/aaaa` en la columna de fecha de confirmación; solo se escribe
+esa celda. La fila sale de Registrado y pasa a **Confirmadas**, que solo
+ven admin y super. Si la fila ya tiene fecha en la hoja, no aparece en
+Registrado.
 
 > El flete (I) es el valor que se lleva a la hoja de Cartera. El panel no
 > toca la hoja de Cartera; esa relación la mantiene la hoja.

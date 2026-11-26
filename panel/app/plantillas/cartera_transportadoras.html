@@ -37,11 +37,19 @@
      href="/cartera?tab=transportadoras&estado=pendiente{{ extra_emp }}">Pendiente</a>
   <a class="{% if estado == 'registrado' %}activa{% endif %}"
      href="/cartera?tab=transportadoras&estado=registrado{{ extra_emp }}">Registrado</a>
+  {% if hay_fecha %}
+  <a class="{% if estado == 'confirmada' %}activa{% endif %}"
+     href="/cartera?tab=transportadoras&estado=confirmada{{ extra_emp }}">Confirmadas</a>
+  {% endif %}
 </div>
-{% if request.query_params.get('ok') == 'guardado' %}<p class="ok">Guardado en la hoja BD.</p>{% endif %}
-{% if request.query_params.get('error') == 'no_factura' %}
-<p class="error">Esa factura ya no está en la hoja BD; actualiza la hoja.</p>
 {% endif %}
+{% if request.query_params.get('ok') == 'guardado' %}<p class="ok">Guardado en la hoja BD.</p>{% endif %}
+{% if request.query_params.get('ok') == 'confirmado' %}<p class="ok">Entrega confirmada.</p>{% endif %}
+{% set error_pantalla = request.query_params.get('error') or '' %}
+{% if error_pantalla == 'no_factura' %}
+<p class="error">Esa factura ya no está en la hoja BD; actualiza la hoja.</p>
+{% elif error_pantalla %}
+<p class="error">{{ error_pantalla }}</p>
 {% endif %}
 <form method="get" action="/cartera" class="transp-filtros">
   <input type="hidden" name="tab" value="transportadoras">
@@ -75,7 +83,8 @@
     <th>Factura</th><th>Fecha</th><th>Cliente</th><th>Ciudad</th>
     <th>Teléfono</th><th>Vendedor</th>
     <th>Cajas</th><th>Flete</th><th>Transportadora</th><th>Guía</th>
-    {% if puede_editar %}<th></th>{% endif %}
+    {% if estado == 'confirmada' %}<th>Confirmada</th>{% endif %}
+    {% if estado != 'confirmada' %}<th></th>{% endif %}
   </tr></thead>
   <tbody>
   {% for f in filas %}
@@ -85,8 +94,18 @@
       <td>{{ f.vendedor or '—' }}</td>
       <td>{{ f.cajas or '—' }}</td><td>{{ f.flete or '—' }}</td>
       <td>{{ f.transportadora or '—' }}</td><td>{{ f.guia or '—' }}</td>
-      {% if puede_editar %}
-      <td><a href="/cartera/transportadoras/editar?factura={{ f.factura|urlencode }}{{ extra_emp }}">Editar</a></td>
+      {% if estado == 'confirmada' %}
+      <td>{{ f.fecha_confirmacion or '—' }}</td>
+      {% else %}
+      <td class="transp-acciones">
+        {% if puede_editar %}
+        <a href="/cartera/transportadoras/editar?factura={{ f.factura|urlencode }}{{ extra_emp }}">Editar</a>
+        {% endif %}
+        {% if hay_fecha and f.completa %}
+        <button type="button" class="enlace-boton"
+                data-confirmar="{{ f.factura|e }}">Confirmar</button>
+        {% endif %}
+      </td>
       {% endif %}
     </tr>
   {% endfor %}
@@ -105,6 +124,54 @@
 </div>
 {% endif %}
 {% endif %}
+<div class="modal-fondo" id="confirmar-fondo" hidden>
+  <form class="modal-caja" method="post"
+        action="/cartera/transportadoras/confirmar">
+    <h2>Confirmar entrega</h2>
+    <p id="confirmar-factura">Factura</p>
+    <input type="hidden" name="factura" id="confirmar-factura-campo">
+    <label>Fecha de entrega
+      <input type="date" name="fecha" id="confirmar-fecha" required>
+    </label>
+    <div class="acciones">
+      <button type="button" class="btn-neutro" id="confirmar-cancelar">Cancelar</button>
+      <button type="submit">Confirmar</button>
+    </div>
+  </form>
+</div>
+<script>
+(function () {
+  var fondo = document.getElementById('confirmar-fondo');
+  if (!fondo) return;
+  var campo = document.getElementById('confirmar-factura-campo');
+  var texto = document.getElementById('confirmar-factura');
+  var fecha = document.getElementById('confirmar-fecha');
+
+  function hoy() {
+    var d = new Date();
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
+
+  document.addEventListener('click', function (e) {
+    var boton = e.target.closest('[data-confirmar]');
+    if (boton) {
+      campo.value = boton.getAttribute('data-confirmar');
+      texto.textContent = 'Factura ' + campo.value;
+      fecha.value = hoy();
+      fondo.hidden = false;
+      return;
+    }
+    if (e.target === fondo) fondo.hidden = true;
+  });
+  document.getElementById('confirmar-cancelar').addEventListener('click',
+    function () { fondo.hidden = true; });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') fondo.hidden = true;
+  });
+})();
+</script>
 <script>
 (function () {
   var form = document.querySelector('.transp-filtros');
