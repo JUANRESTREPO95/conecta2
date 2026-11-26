@@ -679,7 +679,7 @@ def app_cartera(request: Request):
 
 @app.get("/api/app/transportadoras")
 def app_transportadoras(request: Request):
-    """Transportadoras registradas: el vendedor solo las suyas."""
+    """Registradas (vendedor: solo las suyas) o confirmadas (solo admin)."""
     tok = usuario_app(request)
     if tok is None:
         return _json_error("token inválido", 401)
@@ -697,17 +697,55 @@ def app_transportadoras(request: Request):
     configurada = bool((empresa["bd_url"] or "").strip()) and all(
         indices.get(campo, -1) >= 0
         for campo in transporte.ESCRIBE + ("factura",))
+    hay_fecha = indices.get("fecha_confirmacion", -1) >= 0
+    # las confirmadas solo las puede pedir admin (el super no entra a la app)
+    pedido = (request.query_params.get("estado") or "").strip()
+    estado_lista = "confirmada" if (pedido == "confirmada" and
+                                    usuario["rol"] in ("admin", "super")
+                                    and hay_fecha) else "registrado"
     campos = ("factura", "fecha", "cliente", "ciudad", "telefono",
-              "vendedor", "cajas", "flete", "transportadora", "guia")
+              "vendedor", "cajas", "flete", "transportadora", "guia",
+              "fecha_confirmacion")
     filas = []
     if configurada:
         for fila in transporte.filas_lista(usuario, datos, indices,
-                                           "registrado", {}):
+                                           estado_lista, {}):
             filas.append({campo: fila.get(campo, "") for campo in campos})
     return {"ok": True, "configurada": bool(configurada),
+            "hay_fecha": hay_fecha,
+            "estado": estado_lista,
             "actualizado": estado["actualizado"],
             "error": estado["error"] or "",
             "filas": filas, "total": len(filas)}
+
+
+@app.post("/api/app/transportadoras/confirmar")
+async def app_transportadora_confirmar(request: Request):
+    """Confirma la entrega de una factura: escribe solo la fecha en la BD."""
+    tok = usuario_app(request)
+    if tok is None:
+        return _json_error("token inválido", 401)
+    empresa = _empresa_app(tok)
+    if empresa is None or not empresa["activa"]:
+        return _json_error("empresa inactiva", 403)
+    if not bandera(empresa["cartera_activa"]):
+        return _json_error("sección desactivada", 403)
+    usuario = sesion_app(request, empresa["id"])
+    if usuario is None:
+        return _json_error("sesión vencida", 401)
+    try:
+        cuerpo = await request.json()
+    except Exception:
+        cuerpo = {}
+    cuerpo = cuerpo if isinstance(cuerpo, dict) else {}
+    factura = str(cuerpo.get("factura") or "").strip()
+    fecha = str(cuerpo.get("fecha") or "").strip()
+    if not factura:
+        return _json_error("falta la factura")
+    ok, mensaje = confirmar_transportadora(usuario, empresa, factura, fecha)
+    if not ok:
+        return _json_error(mensaje)
+    return {"ok": True}
 
 
 @app.post("/api/app/pedido")
